@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MultiSpace</string>
+    <string name="service_channel_name">Background Manager</string>
+    <string name="service_channel_desc">Persistent notification for the MultiSpace background session manager.</string>
+</resources>

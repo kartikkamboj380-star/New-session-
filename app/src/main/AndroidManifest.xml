@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <!-- Visibility of launcher activities so installed imported apps can be
+         launched without QUERY_ALL_PACKAGES. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
+    <application
+        android:name=".MultiSpaceApp"
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.MultiSpace"
+        tools:targetApi="34">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|keyboardHidden|uiMode|screenLayout|smallestScreenSize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Isolated WebView host processes. Each slot is a separate OS process so
+             every concurrent web session gets its own WebView data directory
+             (setDataDirectorySuffix is per-process). -->
+        <activity
+            android:name=".web.WebSlotActivity0"
+            android:exported="false"
+            android:process=":web_slot_0"
+            android:configChanges="orientation|screenSize|keyboardHidden|uiMode|screenLayout|smallestScreenSize"
+            android:launchMode="singleTop" />
+        <activity
+            android:name=".web.WebSlotActivity1"
+            android:exported="false"
+            android:process=":web_slot_1"
+            android:configChanges="orientation|screenSize|keyboardHidden|uiMode|screenLayout|smallestScreenSize"
+            android:launchMode="singleTop" />
+        <activity
+            android:name=".web.WebSlotActivity2"
+            android:exported="false"
+            android:process=":web_slot_2"
+            android:configChanges="orientation|screenSize|keyboardHidden|uiMode|screenLayout|smallestScreenSize"
+            android:launchMode="singleTop" />
+        <activity
+            android:name=".web.WebSlotActivity3"
+            android:exported="false"
+            android:process=":web_slot_3"
+            android:configChanges="orientation|screenSize|keyboardHidden|uiMode|screenLayout|smallestScreenSize"
+            android:launchMode="singleTop" />
+
+        <service
+            android:name=".service.BackgroundManagerService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps MultiSpace sessions alive, monitors device battery/CPU/RAM and recovers session state while the user is in other apps." />
+        </service>
+
+        <receiver
+            android:name=".apk.InstallStatusReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".web.SessionStatusReceiver"
+            android:exported="false" />
+    </application>
+</manifest>
