@@ -107,6 +107,15 @@ class MultiSpaceViewModel(
                 installMessage.value = event.message
                 if (event.kind == InstallEvent.Kind.SUCCESS) {
                     event.packageName?.let { launchInstalledApp(it) }
+                    // OBB best-effort placement + honest note when blocked.
+                    val appId = event.appId
+                    if (appId != null && event.packageName != null) {
+                        val app = container.db.appDao().get(appId)
+                        if (app != null) {
+                            container.apkImporter.placeObbFiles(app, event.packageName!!)
+                                ?.let { note -> installMessage.value = event.message + "\n" + note }
+                        }
+                    }
                 }
                 container.installEvent.value = null
             }
@@ -237,14 +246,24 @@ class MultiSpaceViewModel(
         }
     }
 
-    /** Runs the platform PackageInstaller flow and reports the outcome in-app. */
+    /**
+     * Runs the platform PackageInstaller flow. For XAPK/APKS imports the base
+     * APK plus every split APK go into ONE install session (the supported
+     * way); OBB notes are surfaced after the install result.
+     */
     private fun startInstall(app: AppEntity) {
         installMessage.value = "Installing ${app.label} via Android PackageInstaller…"
+        val bundle = container.apkImporter.loadBundleInfo(app)
+        val files = buildList {
+            add(File(app.apkPath))
+            bundle?.splitApkPaths?.forEach { add(File(it)) }
+        }
         val result = ApkInstaller.install(
             container.appContext,
-            File(app.apkPath),
+            files,
             app.label,
-            app.packageName
+            app.packageName,
+            app.id
         )
         if (result.isFailure) {
             handleInstallFailure(result.exceptionOrNull())

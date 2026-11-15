@@ -15,7 +15,10 @@ object ApkImportValidator {
     /** Arbitrary smaller files cannot be valid Android packages. */
     const val MIN_APK_BYTES: Long = 1_024
 
-    /** Every APK is a ZIP archive: local file header magic "PK\x03\x04". */
+    /** Bundle formats: XAPK (base + splits + optional OBB) and .apks (bundletool). */
+    private val BUNDLE_EXTENSIONS = setOf("xapk", "apks")
+
+    /** Every APK/bundle is a ZIP archive: local file header magic "PK\x03\x04". */
     private val APK_MAGIC = byteArrayOf(0x50, 0x4B, 0x03, 0x04)
 
     fun isZipApkHeader(header: ByteArray?): Boolean {
@@ -28,6 +31,11 @@ object ApkImportValidator {
 
     fun isValidFileName(fileName: String?): Boolean =
         fileName != null && fileName.endsWith(".apk", ignoreCase = true)
+
+    fun isBundleFileName(fileName: String?): Boolean {
+        val ext = fileName?.substringAfterLast('.', "")?.lowercase() ?: return false
+        return ext in BUNDLE_EXTENSIONS
+    }
 
     fun validate(fileName: String?, sizeBytes: Long, header: ByteArray?): ApkImportValidation {
         if (fileName.isNullOrBlank()) {

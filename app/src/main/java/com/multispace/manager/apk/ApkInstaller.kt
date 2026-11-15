@@ -20,7 +20,8 @@ import java.io.File
 data class InstallEvent(
     val kind: Kind,
     val message: String,
-    val packageName: String? = null
+    val packageName: String? = null,
+    val appId: String? = null
 ) {
     enum class Kind { STARTED, PENDING_USER_ACTION, SUCCESS, FAILURE }
 }
@@ -40,6 +41,7 @@ object ApkInstaller {
     const val EXTRA_SESSION_ID = "extra.session_id"
     const val EXTRA_APP_LABEL = "extra.app_label"
     const val EXTRA_PACKAGE_NAME = "extra.package_name"
+    const val EXTRA_APP_ID = "extra.app_id"
     const val NOTIFICATION_ID_BASE = 2000
 
     fun install(
@@ -47,7 +49,23 @@ object ApkInstaller {
         apkFile: File,
         appLabel: String,
         packageName: String?
+    ): Result<Unit> = install(context, listOf(apkFile), appLabel, packageName, null)
+
+    /**
+     * Installs one or more APKs through a single platform PackageInstaller
+     * session. Passing base + split APKs together is the supported way to
+     * install XAPK/APKS bundles — no repackaging or signature changes.
+     */
+    fun install(
+        context: Context,
+        apkFiles: List<File>,
+        appLabel: String,
+        packageName: String?,
+        appId: String?
     ): Result<Unit> {
+        if (apkFiles.isEmpty() || apkFiles.any { !it.exists() }) {
+            return Result.failure(IllegalArgumentException("APK file(s) missing for install."))
+        }
         // Platform gate: without this grant the system confirmation dialog
         // never appears, so fail fast with an actionable reason.
         if (!context.packageManager.canRequestPackageInstalls()) {
@@ -59,10 +77,12 @@ object ApkInstaller {
             val sessionId = installer.createSession(params)
             val session = installer.openSession(sessionId)
 
-            apkFile.inputStream().use { input ->
-                session.openWrite(apkFile.name, 0, apkFile.length()).use { out ->
-                    input.copyTo(out, DEFAULT_BUFFER_SIZE)
-                    session.fsync(out)
+            apkFiles.forEach { apkFile ->
+                apkFile.inputStream().use { input ->
+                    session.openWrite(apkFile.name, 0, apkFile.length()).use { out ->
+                        input.copyTo(out, DEFAULT_BUFFER_SIZE)
+                        session.fsync(out)
+                    }
                 }
             }
 
@@ -71,6 +91,7 @@ object ApkInstaller {
                 .putExtra(EXTRA_SESSION_ID, sessionId)
                 .putExtra(EXTRA_APP_LABEL, appLabel)
                 .putExtra(EXTRA_PACKAGE_NAME, packageName)
+                .putExtra(EXTRA_APP_ID, appId)
 
             val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             val sender = PendingIntent.getBroadcast(context, sessionId, statusIntent, flags)
@@ -102,6 +123,7 @@ class InstallStatusReceiver : BroadcastReceiver() {
         val status = extras.getInt(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)
         val label = extras.getString(ApkInstaller.EXTRA_APP_LABEL, "App")
         val pkg = extras.getString(ApkInstaller.EXTRA_PACKAGE_NAME)
+        val appId = extras.getString(ApkInstaller.EXTRA_APP_ID)
         val statusMessage = extras.getString(PackageInstaller.EXTRA_STATUS_MESSAGE)
         val container = MultiSpaceApp.instance?.container
 
@@ -113,7 +135,8 @@ class InstallStatusReceiver : BroadcastReceiver() {
                     container?.installEvent?.value = InstallEvent(
                         InstallEvent.Kind.FAILURE,
                         "$label: install confirmation was not provided by the system (status $status).",
-                        pkg
+                        pkg,
+                        appId
                     )
                     return
                 }
@@ -132,7 +155,8 @@ class InstallStatusReceiver : BroadcastReceiver() {
                     } else {
                         "The install confirmation did not open automatically. Tap the 'Continue install' notification (or open the session again)."
                     },
-                    pkg
+                    pkg,
+                    appId
                 )
                 postNotification(
                     context, sessionId,
@@ -145,7 +169,8 @@ class InstallStatusReceiver : BroadcastReceiver() {
                 container?.installEvent?.value = InstallEvent(
                     InstallEvent.Kind.SUCCESS,
                     "$label installed on device",
-                    pkg
+                    pkg,
+                    appId
                 )
                 postNotification(context, sessionId, "MultiSpace install", "$label installed on device", null)
             }
@@ -155,7 +180,7 @@ class InstallStatusReceiver : BroadcastReceiver() {
                     statusMessage?.let { append(": $it") }
                     append(" (status $status)")
                 }
-                container?.installEvent?.value = InstallEvent(InstallEvent.Kind.FAILURE, message, pkg)
+                container?.installEvent?.value = InstallEvent(InstallEvent.Kind.FAILURE, message, pkg, appId)
                 postNotification(context, sessionId, "MultiSpace install", message, null)
             }
         }

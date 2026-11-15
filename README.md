@@ -14,10 +14,14 @@
 
 ## Features
 
-### APK Import
+### APK & XAPK Import
 - **Import App** button opens the Android file picker (Storage Access Framework).
-- The picked file is validated (`.apk` name, size, ZIP `PK\x03\x04` header) **before** parsing — invalid files are rejected with a precise reason.
-- Real metadata is parsed with `PackageManager.getPackageArchiveInfo`: **app name, icon, package name, versionName/versionCode**.
+- Supports **`.apk`** and **`.xapk` / `.apks` bundles** (base APK + split APKs + optional OBB).
+- Files are validated (extension, size, ZIP `PK\x03\x04` header) **before** parsing — invalid files are rejected with a precise reason.
+- Single APKs: real metadata parsed with `PackageManager.getPackageArchiveInfo` — **app name, icon, package name, versionName/versionCode**.
+- **XAPK bundles:** streamed ZIP extraction; the bundle's `manifest.json` and the real base APK provide name/package/version/icon; split APKs are classified via a pure, unit-tested parser (`XapkBundleParser`).
+- **Bundle install is the platform-supported flow:** base + every split APK are pushed into **one PackageInstaller session** — Android verifies signatures/versions itself. No repackaging, no signature tampering.
+- **OBB expansion data** is extracted and stored; placing it into another app's `Android/obb/` folder is blocked by Android unless the user grants "All files access" — the app reports this honestly and attempts placement only with that user-granted permission. Without it, most apps re-download their own data on first run.
 - The APK binary is copied into the app's private storage; the icon is decoded once and cached as a downsampled PNG (low-RAM friendly).
 - Everything is stored in a **Room database** (`imported_apps` table) — the library survives restarts.
 
@@ -90,6 +94,8 @@ Pure-JVM unit tests (no emulator needed) cover the requested areas:
 | Test class | Covers |
 |---|---|
 | `ApkImportValidatorTest` | APK import: valid APK accepted, invalid APK/renamed file/tiny/empty rejected |
+| `XapkBundleParserTest` | XAPK/APKS: manifest parsing, base-vs-split classification, honest no-base failure |
+| `BundleInfoStoreTest` | Bundle sidecar persistence (split/OBB paths): round-trip, corrupt, delete |
 | `SessionLifecycleTest` | Session state machine, **session persistence** (snapshot round-trip, corrupt file, atomic overwrite), **app-restart recovery**, path-traversal safety |
 | `TabControllerTest` | **Tab switching**, new/close tab, active-tab invariants |
 | `MonitorPolicyTest` | **Low-RAM behaviour**, screen-off interval, `/proc/stat` CPU parsing, battery temperature |
