@@ -1,5 +1,9 @@
 # MultiSpace
 
+![Android CI](https://github.com/kartikkamboj380-star/New-session-/actions/workflows/android.yml/badge.svg?branch=arena%2F9f09f864-new-session)
+
+> ✅ **CI verified:** `gradle :app:assembleDebug` + unit tests pass on GitHub Actions; the debug APK is published as the **MultiSpace-debug-APK** artifact on every run.
+
 **MultiSpace** is an Android session manager built with Kotlin + Jetpack Compose. It gives you a browser-style, multi-tab workspace for **isolated WEB sessions** and **imported-APK sessions**, with a user-controlled **background manager** foreground service, live **RAM / CPU / battery-temperature** monitoring and crash-safe session state recovery.
 
 - **Package:** `com.multispace.manager`
