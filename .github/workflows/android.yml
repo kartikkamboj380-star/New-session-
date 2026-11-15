@@ -70,7 +70,7 @@ jobs:
       - name: Surface test failures as annotations
         if: failure()
         run: |
-          grep -E "FAILED|> Task .+ FAILED" /tmp/test_output.txt | head -8 | while IFS= read -r line; do echo "::error::${line:0:280}"; done || true
+          grep -E "^e: |FAILED|> Task .+ FAILED" /tmp/test_output.txt | head -8 | while IFS= read -r line; do echo "::error::${line:0:280}"; done || true
           python3 - <<'EOF'
           import glob
           import xml.etree.ElementTree as ET
