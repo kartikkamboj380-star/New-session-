@@ -71,12 +71,7 @@ class ProfileIntegration(private val context: Context) {
             val activities = la.getActivityList(packageName, handle)
             val first = activities.firstOrNull()
                 ?: return "App is not installed in this profile. Install it there first."
-            la.startMainActivity(
-                ComponentName(first.componentInfo.packageName, first.componentInfo.name),
-                handle,
-                null,
-                null
-            )
+            la.startMainActivity(first.componentName, handle, null, null)
             null
         } catch (e: Exception) {
             "Launch in profile failed: ${e.message ?: e.javaClass.simpleName}"

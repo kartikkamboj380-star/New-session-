@@ -118,7 +118,7 @@ class MultiSpaceViewModel(
      */
     private fun anySlotProcessAlive(@Suppress("UNUSED_PARAMETER") sessionId: String): Boolean {
         val am = container.appContext.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-        val procs = runCatching { am.runningAppProcesses?.map { it.processName } }
+        val procs = runCatching { am.runningAppProcesses?.map { it.processName } ?: emptyList() }
             .getOrDefault(emptyList())
         return procs.any { it.contains(":web_slot_") }
     }

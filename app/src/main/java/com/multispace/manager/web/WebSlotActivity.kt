@@ -28,6 +28,7 @@ import com.multispace.manager.MultiSpaceApp
 import com.multispace.manager.core.SessionPaths
 import com.multispace.manager.core.SessionStatus
 import com.multispace.manager.data.db.TabEntity
+import com.multispace.manager.session.SessionManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -265,7 +266,7 @@ abstract class WebSlotActivity : Activity() {
             val persisted = dao.getForSession(sessionId)
             runOnUiThread {
                 if (persisted.isEmpty()) {
-                    createNewTab(container.sessionManager.NEW_TAB_URL)
+                    createNewTab(SessionManager.NEW_TAB_URL)
                 } else {
                     persisted.forEach { tabs[it.id] = it }
                     activeTabId = persisted.firstOrNull { it.isActive }?.id
@@ -415,7 +416,7 @@ abstract class WebSlotActivity : Activity() {
             isAllCaps = false
             setTextColor(0xFF7C5CFF.toInt())
             setBackgroundColor(Color.TRANSPARENT)
-            setOnClickListener { createNewTab(com.multispace.manager.session.SessionManager.NEW_TAB_URL) }
+            setOnClickListener { createNewTab(SessionManager.NEW_TAB_URL) }
         }
         tabBarLayout.addView(newTabButton)
     }

@@ -155,9 +155,12 @@ class SessionManager(
         }
     }
 
+    suspend fun persistSnapshot(entity: SessionEntity) =
+        persistSnapshot(entity, db.tabDao().getForSession(entity.id))
+
     suspend fun persistSnapshot(
         entity: SessionEntity,
-        tabs: List<TabEntity> = db.tabDao().getForSession(entity.id)
+        tabs: List<TabEntity>
     ) = withContext(Dispatchers.IO) {
         val snapshot = SessionSnapshot(
             sessionId = entity.id,
