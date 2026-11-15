@@ -63,7 +63,27 @@ jobs:
           grep -A 8 "What went wrong" /tmp/build_output.txt | head -12 | while IFS= read -r line; do echo "::error::${line:0:280}"; done || true
 
       - name: Run available unit tests
-        run: ./gradlew --no-daemon :app:testDebugUnitTest
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon :app:testDebugUnitTest 2>&1 | tee /tmp/test_output.txt
+
+      - name: Surface test failures as annotations
+        if: failure()
+        run: |
+          grep -E "FAILED|> Task .+ FAILED" /tmp/test_output.txt | head -8 | while IFS= read -r line; do echo "::error::${line:0:280}"; done || true
+          python3 - <<'EOF'
+          import glob
+          import xml.etree.ElementTree as ET
+          for path in glob.glob('app/build/test-results/**/*.xml', recursive=True):
+              try:
+                  root = ET.parse(path).getroot()
+              except Exception:
+                  continue
+              for case in root.iter('testcase'):
+                  for node in list(case.findall('failure')) + list(case.findall('error')):
+                      msg = (node.get('message') or node.text or '')[:220]
+                      print(f"::error::FAILED {case.get('classname')}.{case.get('name')}: {msg}")
+          EOF
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4

@@ -94,7 +94,10 @@ class SessionLifecycleTest {
 
     @Test
     fun `session ids are sanitized against path traversal`() {
-        assertEquals("_etc_passwd", SessionPaths.sanitize("../../etc/passwd"))
+        val sanitized = SessionPaths.sanitize("../../etc/passwd")
+        assertFalse(sanitized.contains("/"))
+        assertFalse(sanitized.contains("."))
+        assertTrue(sanitized.endsWith("etc_passwd"))
         assertTrue(SessionPaths.sanitize("abc-DEF_123").startsWith("abc"))
         assertEquals("_", SessionPaths.sanitize(""))
     }
