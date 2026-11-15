@@ -86,7 +86,9 @@ object BundleExtractor {
     }
 
     fun sanitizeSegment(segment: String): String =
-        segment.replace(Regex("[^A-Za-z0-9._ ()-]"), "_").ifBlank { "entry.bin" }
+        segment.replace(Regex("[^A-Za-z0-9._ ()-]"), "_")
+            .replace(Regex("\\.{2,}"), "_")
+            .ifBlank { "entry.bin" }
 
     private fun uniqueFile(dir: File, desired: String): File {
         if (!File(dir, desired).exists()) return File(dir, desired)

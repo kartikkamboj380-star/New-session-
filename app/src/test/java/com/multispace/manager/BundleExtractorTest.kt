@@ -119,8 +119,11 @@ class BundleExtractorTest {
     }
 
     @Test
-    fun `segment sanitization blocks path separators`() {
-        assertEquals("evil_name.apk", BundleExtractor.sanitizeSegment("../../evil/name.apk"))
+    fun `segment sanitization blocks path separators and dot sequences`() {
+        val sanitized = BundleExtractor.sanitizeSegment("../../evil/name.apk")
+        assertFalse(sanitized.contains("/"))
+        assertFalse(sanitized.contains(".."))
+        assertTrue(sanitized.endsWith("evil_name.apk"))
         assertEquals("entry.bin", BundleExtractor.sanitizeSegment(""))
     }
 }
