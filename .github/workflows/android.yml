@@ -24,8 +24,16 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      # GitHub's Ubuntu runner images ship the Android SDK preinstalled
+      # (ANDROID_HOME=/usr/local/lib/android/sdk). android-actions/setup-android
+      # is unstable on the Ubuntu 26 image, so we just verify the preinstalled
+      # SDK and accept remaining licenses.
+      - name: Verify preinstalled Android SDK + accept licenses
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          sdkmanager --version
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager --list | head -20
 
       - name: Set up Gradle (with caching)
         uses: gradle/actions/setup-gradle@v4
