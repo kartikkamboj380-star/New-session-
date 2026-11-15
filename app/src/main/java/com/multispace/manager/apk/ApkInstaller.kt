@@ -21,7 +21,8 @@ data class InstallEvent(
     val kind: Kind,
     val message: String,
     val packageName: String? = null,
-    val appId: String? = null
+    val appId: String? = null,
+    val suggestUninstall: Boolean = false
 ) {
     enum class Kind { STARTED, PENDING_USER_ACTION, SUCCESS, FAILURE }
 }
@@ -175,15 +176,49 @@ class InstallStatusReceiver : BroadcastReceiver() {
                 postNotification(context, sessionId, "MultiSpace install", "$label installed on device", null)
             }
             else -> {
+                // The generic EXTRA_STATUS is almost always just "FAILURE" (1);
+                // the actionable reason is the legacy int code (downgrade,
+                // signature conflict, user-restricted on MIUI, storage, …).
+                val legacy = extras.getInt(PackageInstaller.EXTRA_LEGACY_STATUS, 0)
+                val suggestUninstall = legacy == -1 || legacy == -7 || legacy == -25
                 val message = buildString {
                     append("$label install failed")
-                    statusMessage?.let { append(": $it") }
-                    append(" (status $status)")
+                    if (legacy != 0) {
+                        append(": ${legacyReason(legacy)}")
+                    } else {
+                        statusMessage?.let { append(": $it") }
+                    }
+                    append(" (status $status")
+                    if (legacy != 0) append(", code $legacy")
+                    append(")")
                 }
-                container?.installEvent?.value = InstallEvent(InstallEvent.Kind.FAILURE, message, pkg, appId)
+                container?.installEvent?.value = InstallEvent(
+                    InstallEvent.Kind.FAILURE, message, pkg, appId, suggestUninstall
+                )
                 postNotification(context, sessionId, "MultiSpace install", message, null)
             }
         }
+    }
+
+    /**
+     * Maps Android's (hidden) PackageManager INSTALL_FAILED_* legacy codes to
+     * user-actionable reasons. Values from the public AOSP definitions.
+     */
+    internal fun legacyReason(code: Int): String = when (code) {
+        -1 -> "the app already exists in an incompatible form"
+        -2 -> "invalid APK (damaged or mismatched split set)"
+        -4 -> "not enough storage space on the device"
+        -7 -> "a different-signed copy of this app is already installed — uninstall it first, then install again"
+        -12 -> "the app targets an older Android version than this device supports"
+        -14 -> "the app requires a newer Android version than this device has"
+        -16 -> "the app does not support this device's CPU architecture"
+        -18, -19 -> "invalid install location/container"
+        -25 -> "a NEWER version is already installed — uninstall the existing version first, then install this one"
+        -27 -> "multi-APK set is inconsistent (splits from different versions) — re-import the full bundle"
+        -103, -104 -> "APK signature problem (missing or inconsistent certificates)"
+        -111 -> "install was blocked by the system (MIUI: enable Developer options → 'Install via USB', or turn off 'MIUI optimization'); keep the screen on during install"
+        -115 -> "the install was aborted (system or user) — try again and confirm promptly"
+        else -> "Android rejected the install (reason code $code)"
     }
 
     private fun postNotification(

@@ -41,6 +41,8 @@ data class AppUiState(
     val importing: Boolean = false,
     val importMessage: String? = null,
     val installMessage: String? = null,
+    val installSuggestUninstall: Boolean = false,
+    val installPackageName: String? = null,
     val sessionMessage: String? = null,
     val selectedWebSessionId: String? = null
 )
@@ -52,19 +54,27 @@ class MultiSpaceViewModel(
     private val importing = MutableStateFlow(false)
     private val importMessage = MutableStateFlow<String?>(null)
     private val installMessage = MutableStateFlow<String?>(null)
+    private val installSuggestUninstall = MutableStateFlow(false)
+    private val installPackageName = MutableStateFlow<String?>(null)
     private val sessionMessage = MutableStateFlow<String?>(null)
     private val selectedWebSessionId = MutableStateFlow<String?>(null)
 
+    private val installUi = combine(
+        installMessage, installSuggestUninstall, installPackageName
+    ) { msg, suggest, pkg -> Triple(msg, suggest, pkg) }
+
     private val meta = combine(
-        importing, importMessage, installMessage, sessionMessage, selectedWebSessionId
-    ) { imp, impMsg, instMsg, sesMsg, sel ->
-        MetaUi(imp, impMsg, instMsg, sesMsg, sel)
+        importing, importMessage, installUi, sessionMessage, selectedWebSessionId
+    ) { imp, impMsg, install, sesMsg, sel ->
+        MetaUi(imp, impMsg, install.first, install.second, install.third, sesMsg, sel)
     }
 
     private data class MetaUi(
         val importing: Boolean,
         val importMessage: String?,
         val installMessage: String?,
+        val installSuggestUninstall: Boolean,
+        val installPackageName: String?,
         val sessionMessage: String?,
         val selected: String?
     )
@@ -89,6 +99,8 @@ class MultiSpaceViewModel(
             importing = metaUi.importing,
             importMessage = metaUi.importMessage,
             installMessage = metaUi.installMessage,
+            installSuggestUninstall = metaUi.installSuggestUninstall,
+            installPackageName = metaUi.installPackageName,
             sessionMessage = metaUi.sessionMessage,
             selectedWebSessionId = metaUi.selected
         )
@@ -105,7 +117,10 @@ class MultiSpaceViewModel(
             container.installEvent.collect { event ->
                 if (event == null) return@collect
                 installMessage.value = event.message
+                installSuggestUninstall.value = event.suggestUninstall
+                installPackageName.value = event.packageName
                 if (event.kind == InstallEvent.Kind.SUCCESS) {
+                    installSuggestUninstall.value = false
                     event.packageName?.let { launchInstalledApp(it) }
                     // OBB best-effort placement + honest note when blocked.
                     val appId = event.appId
@@ -312,6 +327,18 @@ class MultiSpaceViewModel(
 
     fun dismissInstallMessage() {
         installMessage.value = null
+        installSuggestUninstall.value = false
+    }
+
+    /** Opens the system uninstall dialog for an app that blocks an update. */
+    fun uninstallExistingApp(packageName: String) {
+        val intent = Intent(Intent.ACTION_DELETE, Uri.parse("package:$packageName"))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        runCatching { container.appContext.startActivity(intent) }
+            .onFailure {
+                installMessage.value = "Could not open uninstaller for $packageName — remove the app manually, then install again."
+            }
+        dismissInstallMessage()
     }
 
     fun closeSession(sessionId: String) {

@@ -175,7 +175,8 @@ fun AppsScreen(
     onInstall: (AppEntity) -> Unit,
     onDelete: (AppEntity) -> Unit,
     onDismissImportMessage: () -> Unit,
-    onDismissInstallMessage: () -> Unit
+    onDismissInstallMessage: () -> Unit,
+    onUninstallExisting: (String) -> Unit
 ) {
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         item {
@@ -248,6 +249,13 @@ fun AppsScreen(
         AlertDialog(
             onDismissRequest = onDismissInstallMessage,
             confirmButton = { TextButton(onClick = onDismissInstallMessage) { Text("OK") } },
+            dismissButton = {
+                if (state.installSuggestUninstall && state.installPackageName != null) {
+                    TextButton(onClick = { onUninstallExisting(state.installPackageName!!) }) {
+                        Text("Uninstall existing", color = StatusAmber)
+                    }
+                }
+            },
             title = { Text("Install") },
             text = { Text(message) }
         )
