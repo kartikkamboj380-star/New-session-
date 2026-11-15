@@ -14,19 +14,45 @@ import com.multispace.manager.service.BackgroundManagerService
 import java.io.File
 
 /**
- * Installs an imported APK on the device through the platform PackageInstaller
- * (session API with the mandatory user confirmation). This is the honest,
- * supported path to run an imported app: MultiSpace never hides, fakes or
- * bypasses Android's install flow.
+ * One user-visible install status update, stored app-wide so the UI can show
+ * exactly what the platform installer reported (no silent failures).
+ */
+data class InstallEvent(
+    val kind: Kind,
+    val message: String,
+    val packageName: String? = null
+) {
+    enum class Kind { STARTED, PENDING_USER_ACTION, SUCCESS, FAILURE }
+}
+
+/** The device-level "Install unknown apps" grant for MultiSpace is missing. */
+class InstallPermissionNeededException :
+    Exception("MultiSpace does not have 'Install unknown apps' permission on this device.")
+
+/**
+ * Installs an imported APK through the platform PackageInstaller (session API
+ * with the mandatory user confirmation). Honest, supported path to run an
+ * imported app — no security bypasses.
  */
 object ApkInstaller {
 
     const val ACTION_INSTALL_STATUS = "com.multispace.manager.action.INSTALL_STATUS"
     const val EXTRA_SESSION_ID = "extra.session_id"
     const val EXTRA_APP_LABEL = "extra.app_label"
+    const val EXTRA_PACKAGE_NAME = "extra.package_name"
     const val NOTIFICATION_ID_BASE = 2000
 
-    fun install(context: Context, apkFile: File, appLabel: String): Result<Unit> {
+    fun install(
+        context: Context,
+        apkFile: File,
+        appLabel: String,
+        packageName: String?
+    ): Result<Unit> {
+        // Platform gate: without this grant the system confirmation dialog
+        // never appears, so fail fast with an actionable reason.
+        if (!context.packageManager.canRequestPackageInstalls()) {
+            return Result.failure(InstallPermissionNeededException())
+        }
         return try {
             val installer: PackageInstaller = context.packageManager.packageInstaller
             val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
@@ -44,6 +70,7 @@ object ApkInstaller {
                 .setAction(ACTION_INSTALL_STATUS)
                 .putExtra(EXTRA_SESSION_ID, sessionId)
                 .putExtra(EXTRA_APP_LABEL, appLabel)
+                .putExtra(EXTRA_PACKAGE_NAME, packageName)
 
             val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             val sender = PendingIntent.getBroadcast(context, sessionId, statusIntent, flags)
@@ -57,9 +84,14 @@ object ApkInstaller {
 }
 
 /**
- * Receives PackageInstaller results. When the platform asks for the user's
- * install confirmation it launches the confirmation activity; otherwise it
- * posts a status notification.
+ * Receives PackageInstaller results.
+ *
+ *  - PENDING_USER_ACTION: auto-opens the system confirmation; if the OEM
+ *    blocks background activity starts (common on MIUI/HyperOS and similar),
+ *    a "Continue install" notification carrying the confirmation intent is
+ *    posted as fallback.
+ *  - SUCCESS / FAILURE: surfaced in-app (InstallEvent) and as a notification,
+ *    including the platform's own status message.
  */
 class InstallStatusReceiver : BroadcastReceiver() {
 
@@ -69,38 +101,93 @@ class InstallStatusReceiver : BroadcastReceiver() {
         val sessionId = extras.getInt(PackageInstaller.EXTRA_SESSION_ID)
         val status = extras.getInt(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)
         val label = extras.getString(ApkInstaller.EXTRA_APP_LABEL, "App")
+        val pkg = extras.getString(ApkInstaller.EXTRA_PACKAGE_NAME)
+        val statusMessage = extras.getString(PackageInstaller.EXTRA_STATUS_MESSAGE)
+        val container = MultiSpaceApp.instance?.container
 
-        if (status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
-            val confirmIntent: Intent? = extras.getParcelable(Intent.EXTRA_INTENT)
-            confirmIntent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)?.let {
-                runCatching { context.startActivity(it) }
+        when (status) {
+            PackageInstaller.STATUS_PENDING_USER_ACTION -> {
+                @Suppress("DEPRECATION")
+                val confirm: Intent? = extras.getParcelable(Intent.EXTRA_INTENT)
+                if (confirm == null) {
+                    container?.installEvent?.value = InstallEvent(
+                        InstallEvent.Kind.FAILURE,
+                        "$label: install confirmation was not provided by the system (status $status).",
+                        pkg
+                    )
+                    return
+                }
+                confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                var autoOpened = false
+                try {
+                    context.startActivity(confirm)
+                    autoOpened = true
+                } catch (_: Exception) {
+                    // OEM blocked the background activity start — notification fallback below.
+                }
+                container?.installEvent?.value = InstallEvent(
+                    InstallEvent.Kind.PENDING_USER_ACTION,
+                    if (autoOpened) {
+                        "Confirm the installation of $label in the system dialog."
+                    } else {
+                        "The install confirmation did not open automatically. Tap the 'Continue install' notification (or open the session again)."
+                    },
+                    pkg
+                )
+                postNotification(
+                    context, sessionId,
+                    "Continue installing $label",
+                    "Tap to open the Android install confirmation.",
+                    confirm
+                )
             }
-            return
+            PackageInstaller.STATUS_SUCCESS -> {
+                container?.installEvent?.value = InstallEvent(
+                    InstallEvent.Kind.SUCCESS,
+                    "$label installed on device",
+                    pkg
+                )
+                postNotification(context, sessionId, "MultiSpace install", "$label installed on device", null)
+            }
+            else -> {
+                val message = buildString {
+                    append("$label install failed")
+                    statusMessage?.let { append(": $it") }
+                    append(" (status $status)")
+                }
+                container?.installEvent?.value = InstallEvent(InstallEvent.Kind.FAILURE, message, pkg)
+                postNotification(context, sessionId, "MultiSpace install", message, null)
+            }
         }
+    }
 
-        val message = if (status == PackageInstaller.STATUS_SUCCESS) {
-            "$label installed on device"
-        } else {
-            "$label install failed (status $status)"
-        }
-        MultiSpaceApp.instance?.container?.installEvents?.tryEmit(message)
-
-        if (android.os.Build.VERSION.SDK_INT >= 33) {
+    private fun postNotification(
+        context: Context,
+        id: Int,
+        title: String,
+        text: String,
+        activityIntent: Intent?
+    ) {
+        if (Build.VERSION.SDK_INT >= 33) {
             val granted = context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
             if (granted != android.content.pm.PackageManager.PERMISSION_GRANTED) return
         }
-
-        val channel = BackgroundManagerService.ensureChannel(context)
-        val notification = NotificationCompat.Builder(context, channel)
+        val builder = NotificationCompat.Builder(context, BackgroundManagerService.ensureChannel(context))
             .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle("MultiSpace install")
-            .setContentText(message)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setAutoCancel(true)
-            .build()
+        activityIntent?.let {
+            val pi = PendingIntent.getActivity(
+                context, id, it,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            builder.setContentIntent(pi)
+        }
         runCatching {
             NotificationManagerCompat.from(context)
-                .notify(ApkInstaller.NOTIFICATION_ID_BASE + sessionId, notification)
+                .notify(ApkInstaller.NOTIFICATION_ID_BASE + id, builder.build())
         }
     }
 }

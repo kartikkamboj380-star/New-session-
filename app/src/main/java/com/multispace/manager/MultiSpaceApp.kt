@@ -37,8 +37,8 @@ class AppContainer(val appContext: Context) {
 
     val serviceRunning = MutableStateFlow(false)
 
-    /** User-visible install results forwarded from PackageInstaller broadcasts. */
-    val installEvents = MutableSharedFlow<String>(extraBufferCapacity = 16)
+    /** Latest install status from the platform PackageInstaller (shown in-app). */
+    val installEvent = MutableStateFlow<com.multispace.manager.apk.InstallEvent?>(null)
 
     val isLowRamDevice: Boolean by lazy { systemMonitor.isLowRamDevice() }
 

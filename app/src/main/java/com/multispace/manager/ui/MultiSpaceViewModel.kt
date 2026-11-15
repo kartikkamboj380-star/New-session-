@@ -4,10 +4,13 @@ import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.provider.Settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.multispace.manager.AppContainer
 import com.multispace.manager.apk.ApkInstaller
+import com.multispace.manager.apk.InstallEvent
+import com.multispace.manager.apk.InstallPermissionNeededException
 import com.multispace.manager.core.SessionKind
 import com.multispace.manager.core.SessionStatus
 import com.multispace.manager.core.SessionRecoveryPolicy
@@ -37,6 +40,7 @@ data class AppUiState(
     val serviceRunning: Boolean = false,
     val importing: Boolean = false,
     val importMessage: String? = null,
+    val installMessage: String? = null,
     val sessionMessage: String? = null,
     val selectedWebSessionId: String? = null
 )
@@ -47,17 +51,20 @@ class MultiSpaceViewModel(
 
     private val importing = MutableStateFlow(false)
     private val importMessage = MutableStateFlow<String?>(null)
+    private val installMessage = MutableStateFlow<String?>(null)
     private val sessionMessage = MutableStateFlow<String?>(null)
     private val selectedWebSessionId = MutableStateFlow<String?>(null)
 
-    private val meta = combine(importing, importMessage, sessionMessage, selectedWebSessionId) {
-        imp, impMsg, sesMsg, sel ->
-        MetaUi(imp, impMsg, sesMsg, sel)
+    private val meta = combine(
+        importing, importMessage, installMessage, sessionMessage, selectedWebSessionId
+    ) { imp, impMsg, instMsg, sesMsg, sel ->
+        MetaUi(imp, impMsg, instMsg, sesMsg, sel)
     }
 
     private data class MetaUi(
         val importing: Boolean,
         val importMessage: String?,
+        val installMessage: String?,
         val sessionMessage: String?,
         val selected: String?
     )
@@ -81,6 +88,7 @@ class MultiSpaceViewModel(
             serviceRunning = running,
             importing = metaUi.importing,
             importMessage = metaUi.importMessage,
+            installMessage = metaUi.installMessage,
             sessionMessage = metaUi.sessionMessage,
             selectedWebSessionId = metaUi.selected
         )
@@ -89,6 +97,19 @@ class MultiSpaceViewModel(
     init {
         viewModelScope.launch {
             container.sessionManager.recoverSessions(processAlive = ::anySlotProcessAlive)
+        }
+        // Install results from the platform PackageInstaller (broadcasts arrive
+        // from the receiver in any process/state): show the exact platform
+        // message in-app and auto-launch the app on success.
+        viewModelScope.launch {
+            container.installEvent.collect { event ->
+                if (event == null) return@collect
+                installMessage.value = event.message
+                if (event.kind == InstallEvent.Kind.SUCCESS) {
+                    event.packageName?.let { launchInstalledApp(it) }
+                }
+                container.installEvent.value = null
+            }
         }
         // Foreground dashboard sampling: mirrors the service interval policy
         // (slower on low-RAM devices) so vitals update even when the
@@ -208,21 +229,70 @@ class MultiSpaceViewModel(
             } else {
                 val app = container.db.appDao().getByPackage(pkg)
                 if (app != null) {
-                    sessionMessage.value = "Installing ${app.label} via Android PackageInstaller…"
-                    val result = ApkInstaller.install(
-                        container.appContext,
-                        File(app.apkPath),
-                        app.label
-                    )
-                    if (result.isFailure) {
-                        sessionMessage.value =
-                            "Install could not start: ${result.exceptionOrNull()?.message}"
-                    }
+                    startInstall(app)
                 } else {
                     sessionMessage.value = "Import the APK first, then open this session."
                 }
             }
         }
+    }
+
+    /** Runs the platform PackageInstaller flow and reports the outcome in-app. */
+    private fun startInstall(app: AppEntity) {
+        installMessage.value = "Installing ${app.label} via Android PackageInstaller…"
+        val result = ApkInstaller.install(
+            container.appContext,
+            File(app.apkPath),
+            app.label,
+            app.packageName
+        )
+        if (result.isFailure) {
+            handleInstallFailure(result.exceptionOrNull())
+        }
+    }
+
+    private fun handleInstallFailure(error: Throwable?) {
+        if (error is InstallPermissionNeededException) {
+            openInstallPermissionSettings()
+            installMessage.value =
+                "MultiSpace needs the 'Install unknown apps' permission. The Settings page opened — enable it, then tap Open again."
+        } else {
+            installMessage.value =
+                "Install could not start: ${error?.message ?: "unknown error"}."
+        }
+    }
+
+    /** Deep-links to the per-app "Install unknown apps" settings page. */
+    fun openInstallPermissionSettings() {
+        val intent = Intent(
+            Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+            Uri.parse("package:com.multispace.manager")
+        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        runCatching { container.appContext.startActivity(intent) }
+            .onFailure {
+                installMessage.value =
+                    "Open Settings → Apps → MultiSpace → 'Install unknown apps' → Allow, then try again."
+            }
+    }
+
+    /** Launches an installed app by package (used after successful install). */
+    private fun launchInstalledApp(packageName: String) {
+        val pm = container.appContext.packageManager
+        val launchIntent = pm.getLaunchIntentForPackage(packageName)
+        if (launchIntent != null) {
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            runCatching { container.appContext.startActivity(launchIntent) }
+                .onFailure {
+                    installMessage.value = "Installed. Open it from the session card (Open)."
+                }
+        } else {
+            installMessage.value =
+                "Installed. The app has no launcher screen — open it from your app drawer."
+        }
+    }
+
+    fun dismissInstallMessage() {
+        installMessage.value = null
     }
 
     fun closeSession(sessionId: String) {
@@ -273,12 +343,7 @@ class MultiSpaceViewModel(
     /** Installs an imported APK through the platform PackageInstaller. */
     fun installApp(app: AppEntity) {
         viewModelScope.launch {
-            sessionMessage.value = "Installing ${app.label} via Android PackageInstaller…"
-            val result = ApkInstaller.install(container.appContext, File(app.apkPath), app.label)
-            if (result.isFailure) {
-                sessionMessage.value =
-                    "Install could not start: ${result.exceptionOrNull()?.message ?: "unknown error"}. Check 'Install unknown apps' permission for MultiSpace."
-            }
+            startInstall(app)
         }
     }
 

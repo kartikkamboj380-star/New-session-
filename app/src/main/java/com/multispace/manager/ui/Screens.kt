@@ -174,7 +174,8 @@ fun AppsScreen(
     onImport: () -> Unit,
     onInstall: (AppEntity) -> Unit,
     onDelete: (AppEntity) -> Unit,
-    onDismissImportMessage: () -> Unit
+    onDismissImportMessage: () -> Unit,
+    onDismissInstallMessage: () -> Unit
 ) {
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         item {
@@ -238,6 +239,16 @@ fun AppsScreen(
             onDismissRequest = onDismissImportMessage,
             confirmButton = { TextButton(onClick = onDismissImportMessage) { Text("OK") } },
             title = { Text(if (message.startsWith("Imported")) "Import complete" else "Import problem") },
+            text = { Text(message) }
+        )
+    }
+    // Live status of the platform PackageInstaller flow (pending confirmation,
+    // success incl. auto-launch, or the exact platform failure message).
+    state.installMessage?.let { message ->
+        AlertDialog(
+            onDismissRequest = onDismissInstallMessage,
+            confirmButton = { TextButton(onClick = onDismissInstallMessage) { Text("OK") } },
+            title = { Text("Install") },
             text = { Text(message) }
         )
     }

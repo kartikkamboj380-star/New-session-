@@ -127,7 +127,8 @@ fun AppRoot(vm: MultiSpaceViewModel, container: AppContainer) {
                     },
                     onInstall = { vm.installApp(it) },
                     onDelete = { vm.deleteApp(it.id) },
-                    onDismissImportMessage = { vm.dismissImportMessage() }
+                    onDismissImportMessage = { vm.dismissImportMessage() },
+                    onDismissInstallMessage = { vm.dismissInstallMessage() }
                 )
                 Screen.SESSIONS -> SessionsScreen(
                     state = state,
