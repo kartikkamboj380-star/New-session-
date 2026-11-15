@@ -14,6 +14,8 @@ jobs:
   build:
     name: Build debug APK + run unit tests
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -91,6 +93,21 @@ jobs:
           name: MultiSpace-debug-APK
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+
+      # Publishes the APK as a release asset so there is a permanent direct
+      # download link (no navigation through Actions artifacts needed).
+      - name: Publish APK to the 'latest' GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk MultiSpace-debug.apk
+          gh release view latest --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1 || \
+            gh release create latest --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "MultiSpace — latest debug APK" \
+              --notes "Automated latest debug build. Direct APK download below. Installed via Android PackageInstaller flow."
+          gh release upload latest MultiSpace-debug.apk --repo "$GITHUB_REPOSITORY" --clobber
+          echo "Direct link: https://github.com/$GITHUB_REPOSITORY/releases/download/latest/MultiSpace-debug.apk"
 
       - name: Upload unit test results
         uses: actions/upload-artifact@v4
