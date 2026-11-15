@@ -10,6 +10,7 @@ import android.provider.OpenableColumns
 import androidx.core.graphics.drawable.toBitmap
 import com.multispace.manager.core.ApkImportValidation
 import com.multispace.manager.core.ApkImportValidator
+import com.multispace.manager.core.BundleExtractor
 import com.multispace.manager.core.XapkBundleParser
 import com.multispace.manager.data.db.AppDao
 import com.multispace.manager.data.db.AppEntity
@@ -17,7 +18,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
-import java.util.zip.ZipInputStream
 
 /**
  * Imports APKs and bundles picked through the Storage Access Framework:
@@ -128,72 +128,90 @@ class ApkImporter(
             var staging: File? = null
             try {
                 staging = File(context.cacheDir, "bundle_${UUID.randomUUID()}").apply { mkdirs() }
-                val apkEntries = linkedMapOf<String, File>()
-                val obbEntries = linkedMapOf<String, File>()
-                var manifestJson: String? = null
-
-                context.contentResolver.openInputStream(uri)?.use { input ->
-                    ZipInputStream(input).use { zis ->
-                        var entry = zis.nextEntry
-                        while (entry != null) {
-                            val name = entry.name
-                            if (!entry.isDirectory) {
-                                when {
-                                    name.endsWith(".apk", ignoreCase = true) -> {
-                                        val target = File(staging, uniqueStagingName(staging, name.substringAfterLast('/')))
-                                        target.outputStream().use { zis.copyTo(it) }
-                                        apkEntries[name] = target
-                                    }
-                                    name.endsWith(".obb", ignoreCase = true) -> {
-                                        val target = File(staging, uniqueStagingName(staging, name.substringAfterLast('/')))
-                                        target.outputStream().use { zis.copyTo(it) }
-                                        obbEntries[name] = target
-                                    }
-                                    name.substringAfterLast('/').equals("manifest.json", ignoreCase = true) -> {
-                                        manifestJson = zis.readBytes().toString(Charsets.UTF_8)
-                                    }
-                                }
-                            }
-                            entry = zis.nextEntry
-                        }
-                    }
+                val extracted = context.contentResolver.openInputStream(uri)?.use { input ->
+                    BundleExtractor.extract(input, staging)
                 } ?: return@withContext ImportResult.Failure("Cannot open the selected file.")
 
-                if (apkEntries.isEmpty()) {
+                if (extracted.apks.isEmpty()) {
                     return@withContext ImportResult.Failure(
                         "Invalid XAPK/bundle: no APK files found inside (or it is not a ZIP archive)."
                     )
                 }
 
-                val parsedBundle = XapkBundleParser.parse(displayName, manifestJson, apkEntries.keys.toList())
-                val baseEntry = parsedBundle.baseApkEntry
-                    ?: return@withContext ImportResult.Failure(
-                        "Invalid bundle: could not identify the base APK among ${apkEntries.size} entries."
-                    )
+                val parsedBundle = XapkBundleParser.parse(
+                    displayName,
+                    extracted.manifestJson,
+                    extracted.apks.map { it.entryName }
+                )
+                val byEntry = extracted.apks.associateBy { it.entryName }
+                val parserSplits = parsedBundle.splitApkEntries.toSet()
 
-                val baseFile = apkEntries.getValue(baseEntry)
-                val parsed = parseArchive(baseFile)
-                    ?: return@withContext ImportResult.Failure(
-                        "Invalid bundle: base APK \"$baseEntry\" could not be parsed by Android."
+                // Candidate order: the classified base first, then the largest
+                // remaining non-split APKs, then the splits. Some bundles ship
+                // a stub/empty base with the real app among the splits — the
+                // first candidate that Android can actually parse wins.
+                val candidates = buildList {
+                    parsedBundle.baseApkEntry?.let { add(it) }
+                    extracted.apks
+                        .filter { it.entryName != parsedBundle.baseApkEntry && it.entryName !in parserSplits }
+                        .sortedByDescending { it.sizeBytes }
+                        .forEach { add(it.entryName) }
+                    extracted.apks
+                        .filter { it.entryName in parserSplits }
+                        .sortedByDescending { it.sizeBytes }
+                        .forEach { add(it.entryName) }
+                }.distinct()
+
+                var parsed: ParsedApk? = null
+                var baseApkFile: File? = null
+                var baseEntryUsed: String? = null
+                val diagnosis = mutableListOf<String>()
+
+                for (candidate in candidates) {
+                    val apk = byEntry.getValue(candidate)
+                    val parsedCandidate = parseArchive(apk.file)
+                    if (parsedCandidate?.packageName != null) {
+                        parsed = parsedCandidate
+                        baseApkFile = apk.file
+                        baseEntryUsed = candidate
+                        break
+                    }
+                    diagnosis.add(
+                        "${apk.entryName}: ${apk.sizeBytes} bytes, ZIP header " +
+                            if (apk.zipHeaderValid) "OK but Android parse FAILED"
+                            else "INVALID (not an APK)"
                     )
+                }
+
+                if (parsed == null || baseApkFile == null || baseEntryUsed == null) {
+                    return@withContext ImportResult.Failure(
+                        buildString {
+                            appendLine("Invalid bundle: no APK inside could be parsed by Android.")
+                            diagnosis.forEach { appendLine("• $it") }
+                            append("This XAPK download is most likely incomplete, corrupt, or not a standard bundle — re-download it, or import the plain .apk file instead.")
+                        }
+                    )
+                }
 
                 val id = UUID.randomUUID().toString()
                 val finalApk = File(importedDir, "$id.apk")
-                baseFile.copyTo(finalApk, overwrite = true)
+                baseApkFile.copyTo(finalApk, overwrite = true)
 
-                val splitFiles = parsedBundle.splitApkEntries.mapIndexedNotNull { index, entryName ->
-                    val source = apkEntries[entryName] ?: return@mapIndexedNotNull null
-                    val target = File(importedDir, "$id.split$index.apk")
-                    source.copyTo(target, overwrite = true)
-                    target.absolutePath
-                }
+                val splitFiles = candidates
+                    .filter { it != baseEntryUsed }
+                    .mapIndexedNotNull { index, entryName ->
+                        val source = byEntry[entryName] ?: return@mapIndexedNotNull null
+                        val target = File(importedDir, "$id.split$index.apk")
+                        source.file.copyTo(target, overwrite = true)
+                        target.absolutePath
+                    }
 
                 val obbDir = File(importedDir, "$id.obb").apply { mkdirs() }
-                val obbPaths = obbEntries.map { (entryName, source) ->
-                    val target = File(obbDir, entryName.substringAfterLast('/'))
-                    if (!source.renameTo(target)) {
-                        source.copyTo(target, overwrite = true)
-                        source.delete()
+                val obbPaths = extracted.obbs.map { obb ->
+                    val target = File(obbDir, BundleExtractor.sanitizeSegment(obb.entryName.substringAfterLast('/')))
+                    if (!obb.file.renameTo(target)) {
+                        obb.file.copyTo(target, overwrite = true)
+                        obb.file.delete()
                     }
                     target.absolutePath
                 }
@@ -231,17 +249,6 @@ class ApkImporter(
                 staging?.deleteRecursively()
             }
         }
-
-    private fun uniqueStagingName(dir: File, desired: String): String {
-        var name = desired.ifBlank { "entry.bin" }
-        if (!File(dir, name).exists()) return name
-        val dot = name.lastIndexOf('.')
-        val (base, ext) = if (dot > 0) name.substring(0, dot) to name.substring(dot) else name to ""
-        var i = 1
-        while (File(dir, "$base($i)$ext").exists()) i++
-        name = "$base($i)$ext"
-        return name
-    }
 
     // ------------------------------------------------------------------
     // Bundle info + OBB placement

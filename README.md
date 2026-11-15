@@ -95,6 +95,7 @@ Pure-JVM unit tests (no emulator needed) cover the requested areas:
 |---|---|
 | `ApkImportValidatorTest` | APK import: valid APK accepted, invalid APK/renamed file/tiny/empty rejected |
 | `XapkBundleParserTest` | XAPK/APKS: manifest parsing, base-vs-split classification, honest no-base failure |
+| `BundleExtractorTest` | XAPK streaming extraction: manifest/APK/OBB classification, duplicate entries, header verification for diagnostics |
 | `BundleInfoStoreTest` | Bundle sidecar persistence (split/OBB paths): round-trip, corrupt, delete |
 | `SessionLifecycleTest` | Session state machine, **session persistence** (snapshot round-trip, corrupt file, atomic overwrite), **app-restart recovery**, path-traversal safety |
 | `TabControllerTest` | **Tab switching**, new/close tab, active-tab invariants |
