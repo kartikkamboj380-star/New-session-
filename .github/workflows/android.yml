@@ -24,16 +24,27 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      # GitHub's Ubuntu runner images ship the Android SDK preinstalled
-      # (ANDROID_HOME=/usr/local/lib/android/sdk). android-actions/setup-android
-      # is unstable on the Ubuntu 26 image, so we just verify the preinstalled
-      # SDK and accept remaining licenses.
-      - name: Verify preinstalled Android SDK + accept licenses
+      # Ubuntu 26 runner images: the SDK location/PATH moved and
+      # android-actions/setup-android is unstable there. This step works in
+      # both cases — uses the preinstalled SDK when present, otherwise
+      # installs the commandline tools, then accepts licenses. AGP then
+      # auto-installs whatever platforms/build-tools the build needs.
+      - name: Set up Android SDK (preinstalled or self-installed)
         run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          sdkmanager --version
-          yes | sdkmanager --licenses > /dev/null || true
-          sdkmanager --list | head -20
+          SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          if [ ! -x "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
+            echo "cmdline-tools missing — installing…"
+            mkdir -p "$SDK_ROOT/cmdline-tools"
+            curl -fsSL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o /tmp/clt.zip
+            unzip -q /tmp/clt.zip -d "$SDK_ROOT/cmdline-tools"
+            rm -rf "$SDK_ROOT/cmdline-tools/latest"
+            mv "$SDK_ROOT/cmdline-tools/cmdline-tools" "$SDK_ROOT/cmdline-tools/latest"
+          fi
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "$SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
+          echo "sdkmanager: $($SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --version)"
+          yes | "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
 
       - name: Set up Gradle (with caching)
         uses: gradle/actions/setup-gradle@v4
