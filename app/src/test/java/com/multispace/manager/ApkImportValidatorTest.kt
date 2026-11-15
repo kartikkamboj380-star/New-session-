@@ -13,7 +13,7 @@ class ApkImportValidatorTest {
     private val apkHeader = byteArrayOf(0x50, 0x4B, 0x03, 0x04)
     private val elfHeader = byteArrayOf(0x7F, 0x45, 0x4C, 0x46)
 
-    private fun validCase(name: String, size: Long, header: ByteArray) =
+    private fun validCase(name: String?, size: Long, header: ByteArray) =
         ApkImportValidator.validate(name, size, header)
 
     @Test
