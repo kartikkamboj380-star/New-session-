@@ -50,7 +50,17 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Build debug APK (gradle :app:assembleDebug)
-        run: ./gradlew --no-daemon --stacktrace :app:assembleDebug
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon --stacktrace :app:assembleDebug 2>&1 | tee /tmp/build_output.txt
+
+      # Logs are hard to reach from tooling; surface compile errors as
+      # check-run annotations (readable via the GitHub API) on failure.
+      - name: Surface build errors as annotations
+        if: failure()
+        run: |
+          grep -E "^e: |error: |Caused by:" /tmp/build_output.txt | head -8 | while IFS= read -r line; do echo "::error::${line:0:280}"; done || true
+          grep -A 8 "What went wrong" /tmp/build_output.txt | head -12 | while IFS= read -r line; do echo "::error::${line:0:280}"; done || true
 
       - name: Run available unit tests
         run: ./gradlew --no-daemon :app:testDebugUnitTest
