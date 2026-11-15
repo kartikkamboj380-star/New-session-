@@ -199,7 +199,7 @@ class ApkImporter(
                 }
 
                 BundleInfoStore.save(
-                    BundleInfoStore.fileFor(finalApk),
+                    BundleInfoStore.fileFor(finalApk.absolutePath),
                     BundleArtifact(
                         packageName = parsed.packageName ?: parsedBundle.packageName,
                         splitApkPaths = splitFiles,
