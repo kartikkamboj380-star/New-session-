@@ -179,7 +179,8 @@ class InstallStatusReceiver : BroadcastReceiver() {
                 // The generic EXTRA_STATUS is almost always just "FAILURE" (1);
                 // the actionable reason is the legacy int code (downgrade,
                 // signature conflict, user-restricted on MIUI, storage, …).
-                val legacy = extras.getInt(PackageInstaller.EXTRA_LEGACY_STATUS, 0)
+                // PackageManager.EXTRA_LEGACY_STATUS ("android.intent.extra.LEGACY_STATUS")
+                val legacy = extras.getInt("android.intent.extra.LEGACY_STATUS", 0)
                 val suggestUninstall = legacy == -1 || legacy == -7 || legacy == -25
                 val message = buildString {
                     append("$label install failed")
