@@ -1,6 +1,7 @@
 package com.universalbrain.ai.feature.dashboard
 
 import android.app.Application
+import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -8,6 +9,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
 import com.universalbrain.ai.AppContainer
 import com.universalbrain.ai.UbaApp
 import com.universalbrain.ai.core.database.Account
@@ -536,6 +538,15 @@ class UbaViewModel(
 
     fun setAdsConsent(consent: Boolean) {
         viewModelScope.launch { settings.edit { it[KEY_ADS_CONSENT] = consent } }
+    }
+
+    private suspend fun loadLlmConfig(): Triple<String, String, String?> {
+        val prefs = settings.data.first()
+        return Triple(
+            prefs[KEY_LLM_URL] ?: "",
+            prefs[KEY_LLM_MODEL] ?: "",
+            container.secureStore.get("llm_api_key")
+        )
     }
 
     fun saveLlmConfig(baseUrl: String, model: String, apiKey: String?, onResult: (String) -> Unit) {
