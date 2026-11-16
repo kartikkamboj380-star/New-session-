@@ -26,11 +26,14 @@ object ClonePolicy {
             else -> 2
         }
         val webCap = webSlotCount * 2 // WEB + APP instances share the budget
-        val capped = minOf(byRam, webCap)
+        // The slot budget binds only on constrained devices (<= 4 instances);
+        // higher slot counts scale with RAM, so the RAM table governs there.
+        val capped = if (webCap <= 4) minOf(byRam, webCap) else byRam
         return Decision(
             maxInstances = capped,
             reason = when {
                 isLowRamDevice -> "Low-RAM device (Android Go class): 2 instances"
+                webCap <= 4 -> "Slot budget limits this device: $capped instances"
                 totalRamMb >= 6_000 -> "High-RAM device: $capped instances"
                 else -> "$capped instances for ${totalRamMb / 1000}GB RAM device"
             }

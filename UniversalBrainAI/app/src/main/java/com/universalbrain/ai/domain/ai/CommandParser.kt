@@ -17,6 +17,8 @@ object CommandParser {
         val normalized = raw.lowercase()
             .trim()
             .replace(Regex("[^a-z0-9\\s%.]"), " ")
+            // Sentence periods are word separators; decimal points stay attached.
+            .replace(Regex("(?<![0-9])\\.(?![0-9])"), " ")
             .replace(Regex("\\s+"), " ")
             .trim()
         val words = normalized.split(" ").filter { it.isNotBlank() }
