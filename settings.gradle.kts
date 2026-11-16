@@ -14,5 +14,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "MultiSpace"
+rootProject.name = "New-session-"
 include(":app")
+include(":UniversalBrainAI:app")

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Universal Brain AI: brain-core + circuit motif -->
+    <path
+        android:fillColor="#19E58C"
+        android:pathData="M54,26 L70,35 L70,53 L54,62 L38,53 L38,35 Z" />
+    <path
+        android:fillColor="#2E8BFF"
+        android:pathData="M54,46 L78,59 L78,77 L54,90 L30,77 L30,59 Z"
+        android:fillAlpha="0.85" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M50,38 L58,38 A3,3 0 0 1 61,41 L61,49 A3,3 0 0 1 58,52 L50,52 A3,3 0 0 1 47,49 L47,41 A3,3 0 0 1 50,38 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M62,64 L70,64 A3,3 0 0 1 73,67 L73,75 A3,3 0 0 1 70,78 L62,78 A3,3 0 0 1 59,75 L59,67 A3,3 0 0 1 62,64 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M38,64 L46,64 A3,3 0 0 1 49,67 L49,75 A3,3 0 0 1 46,78 L38,78 A3,3 0 0 1 35,75 L35,67 A3,3 0 0 1 38,64 Z" />
+</vector>

@@ -1,3 +1,20 @@
+# New-session- (MultiSpace + Universal Brain AI)
+
+Two complete Android apps live in this repository:
+
+1. **MultiSpace** (`app/`) — isolated multi-session manager. See the [MultiSpace section](#multispace) below.
+2. **UNIVERSAL BRAIN AI** (`UniversalBrainAI/`) — Universal App Manager, Multi-Clone Platform & Autonomous AI Agent. See [UniversalBrainAI/docs/ARCHITECTURE.md](UniversalBrainAI/docs/ARCHITECTURE.md).
+
+| | Module | Gradle task | CI workflow |
+|---|---|---|---|
+| MultiSpace | `:app` | `:app:assembleDebug` | `android.yml` |
+| Universal Brain AI | `:UniversalBrainAI:app` | `:UniversalBrainAI:app:assembleDebug` | `android-build.yml` |
+
+Both publish their debug APKs to the GitHub `latest` release as
+`MultiSpace-debug.apk` and `UniversalBrainAI-debug.apk`.
+
+---
+
 # MultiSpace
 
 ![Android CI](https://github.com/kartikkamboj380-star/New-session-/actions/workflows/android.yml/badge.svg?branch=arena%2F9f09f864-new-session)

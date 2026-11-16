@@ -1,0 +1,118 @@
+name: Universal Brain AI CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'arena/**'
+    paths:
+      - 'UniversalBrainAI/**'
+      - '.github/workflows/android-build.yml'
+      - 'settings.gradle.kts'
+      - 'build.gradle.kts'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build UBA APK + tests + lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK (preinstalled or self-installed)
+        run: |
+          SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          if [ ! -x "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
+            echo "cmdline-tools missing - installing..."
+            mkdir -p "$SDK_ROOT/cmdline-tools"
+            curl -fsSL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o /tmp/clt.zip
+            unzip -q /tmp/clt.zip -d "$SDK_ROOT/cmdline-tools"
+            rm -rf "$SDK_ROOT/cmdline-tools/latest"
+            mv "$SDK_ROOT/cmdline-tools/cmdline-tools" "$SDK_ROOT/cmdline-tools/latest"
+          fi
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "$SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
+          echo "sdkmanager: $($SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --version)"
+          yes | "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+
+      - name: Set up Gradle (with caching)
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build debug APK (gradle :UniversalBrainAI:app:assembleDebug)
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon --stacktrace :UniversalBrainAI:app:assembleDebug 2>&1 | tee /tmp/build_output.txt
+
+      - name: Surface build errors as annotations
+        if: failure()
+        run: |
+          grep -E "^e: |error: |Caused by:|What went wrong" /tmp/build_output.txt | head -10 | while IFS= read -r line; do echo "::error::${line:0:280}"; done || true
+
+      - name: Run unit tests
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon :UniversalBrainAI:app:testDebugUnitTest 2>&1 | tee /tmp/test_output.txt
+
+      - name: Surface test failures as annotations
+        if: failure()
+        run: |
+          grep -E "^e: |FAILED" /tmp/test_output.txt | head -10 | while IFS= read -r line; do echo "::error::${line:0:280}"; done || true
+          python3 - <<'PYEOF'
+          import glob
+          import xml.etree.ElementTree as ET
+          for path in glob.glob('UniversalBrainAI/app/build/test-results/**/*.xml', recursive=True):
+              try:
+                  root = ET.parse(path).getroot()
+              except Exception:
+                  continue
+              for case in root.iter('testcase'):
+                  for node in list(case.findall('failure')) + list(case.findall('error')):
+                      msg = (node.get('message') or node.text or '')[:220]
+                      print(f"::error::FAILED {case.get('classname')}.{case.get('name')}: {msg}")
+          PYEOF
+
+      - name: Run lint
+        run: ./gradlew --no-daemon :UniversalBrainAI:app:lintDebug || echo "::warning::lint reported issues (non-blocking)"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: UniversalBrainAI-debug-APK
+          path: UniversalBrainAI/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      - name: Upload test + lint reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: UniversalBrainAI-reports
+          path: |
+            UniversalBrainAI/app/build/test-results/**/*.xml
+            UniversalBrainAI/app/build/reports/
+          if-no-files-found: ignore
+
+      - name: Publish APK to the 'latest' GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cp UniversalBrainAI/app/build/outputs/apk/debug/app-debug.apk UniversalBrainAI-debug.apk
+          gh release view latest --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1 || \
+            gh release create latest --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "Latest builds" \
+              --notes "Automated latest debug builds. Direct APK downloads below."
+          gh release upload latest UniversalBrainAI-debug.apk --repo "$GITHUB_REPOSITORY" --clobber
+          echo "Direct link: https://github.com/$GITHUB_REPOSITORY/releases/download/latest/UniversalBrainAI-debug.apk"
