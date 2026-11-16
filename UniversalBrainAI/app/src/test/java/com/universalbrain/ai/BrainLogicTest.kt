@@ -164,3 +164,4 @@ class BrainLogicTest {
         assertEquals("https://ctpool.com", step.args["url"])
         assertTrue(step.args["fresh"] == "true")
     }
+}
