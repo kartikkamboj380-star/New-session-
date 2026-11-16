@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -164,7 +165,7 @@ fun MiningConfigScreen(vm: UbaViewModel, navController: NavHostController) {
             )
             OutlinedTextField(value = wallet, onValueChange = { wallet = it }, label = { Text("Wallet address") }, singleLine = true)
             OutlinedTextField(value = coin, onValueChange = { coin = it }, label = { Text("Coin symbol") }, singleLine = true)
-            OutlinedTextField(value = interval, onValueChange = { interval = it.filter { c -> c.isDigit() }.take(3) }, label = { Text("Poll interval (minutes)") }, singleLine = true)
+            OutlinedTextField(value = interval, onValueChange = { txt -> interval = txt.filter(Char::isDigit).take(3) }, label = { Text("Poll interval (minutes)") }, singleLine = true)
             Button(onClick = {
                 vm.addWorker(name, apiUrl, wallet, coin, interval.toIntOrNull() ?: 10) { error ->
                     if (error == null) {
