@@ -26,7 +26,7 @@ class AdsEngineTest {
 
     @Test
     fun `streak grows on consecutive days and resets on gaps`() {
-        val today = AdsEngine.dayEpoch(1_000_000L)
+        val today = AdsEngine.dayEpoch(1_000_000_000_000L) // well past day 0
         assertEquals(1, AdsEngine.streakAfter(0L, today, 0))
         assertEquals(3, AdsEngine.streakAfter(today - 1L, today, 2))
         assertEquals(2, AdsEngine.streakAfter(today, today, 2))
