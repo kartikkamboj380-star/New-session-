@@ -159,7 +159,7 @@ private fun AddRuleDialog(
 fun BackgroundOpsScreen(vm: UbaViewModel, navController: NavHostController) {
     val engine by vm.engineRunning.collectAsState()
     val tasks by vm.tasks.collectAsState(initial = emptyList())
-    val paused by vm.miningPaused.collectAsState()
+    val paused by vm.miningPaused.collectAsState(initial = false)
 
     Column(modifier = Modifier.fillMaxSize()) {
         SectionHeader("Background Operations")

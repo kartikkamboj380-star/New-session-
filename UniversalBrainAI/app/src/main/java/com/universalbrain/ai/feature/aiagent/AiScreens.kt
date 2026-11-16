@@ -39,7 +39,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -86,15 +85,16 @@ fun BrainScreen(vm: UbaViewModel, navController: NavHostController) {
         SectionHeader("Tool registry (permissions)")
         LazyColumn(modifier = Modifier.weight(1f)) {
             items(tools, key = { it.name }) { tool ->
+                val permissionColor = if (tool.permission == ToolRegistry.Permission.READ) {
+                    com.universalbrain.ai.feature.shell.AccentGreen
+                } else if (tool.permission == ToolRegistry.Permission.EXECUTE) {
+                    com.universalbrain.ai.feature.shell.WarnAmber
+                } else {
+                    com.universalbrain.ai.feature.shell.ErrorRed
+                }
                 SimpleCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        StatusDot(
-                            when (tool.permission) {
-                                ToolRegistry.Permission.READ -> com.universalbrain.ai.feature.shell.AccentGreen
-                                ToolRegistry.Permission.EXECUTE -> com.universalbrain.ai.feature.shell.WarnAmber
-                                ToolRegistry.Permission.WRITE -> com.universalbrain.ai.feature.shell.ErrorRed
-                            }
-                        )
+                        StatusDot(permissionColor)
                         Text(
                             "  ${tool.name} · ${tool.permission}",
                             fontWeight = FontWeight.SemiBold,

@@ -47,7 +47,7 @@ import com.universalbrain.ai.feature.shell.statusColor
 fun MiningDashboardScreen(vm: UbaViewModel, navController: NavHostController) {
     val workers by vm.workers.collectAsState(initial = emptyList())
     val hashrate by vm.totalHashrate.collectAsState(initial = null)
-    val paused by vm.miningPaused.collectAsState()
+    val paused by vm.miningPaused.collectAsState(initial = false)
     var message by remember { mutableStateOf<String?>(null) }
 
     Column(modifier = Modifier.fillMaxSize()) {
