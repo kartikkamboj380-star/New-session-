@@ -262,7 +262,7 @@ class AIBrain(
                 val fresh = words["fresh"]?.toBooleanStrictOrNull() ?: (kind == "WEB")
                 val app = findInstalledApp(appQuery)
                 val label = app?.label ?: appQuery.ifBlank { if (kind == "WEB") "Web App" else "App" }
-                val pkg = app?.packageName ?: if (kind == "WEB") "web:$url" : ""
+                val pkg = app?.packageName ?: if (kind == "WEB") "web:$url" else ""
                 val ram = container.deviceMonitor.totalRamMb()
                 val decision = container.cloneRepository.policy(ram, container.deviceMonitor.isLowRamDevice())
                 val created = mutableListOf<String>()
