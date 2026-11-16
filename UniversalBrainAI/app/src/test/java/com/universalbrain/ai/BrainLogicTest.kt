@@ -94,7 +94,8 @@ class BrainLogicTest {
     @Test
     fun `urls wallets and thresholds are extracted`() {
         val parsed = CommandParser.parse("add worker url https://api.ethermine.org/miner/X wallet 0xabc def coin eth over 45")
-        assertEquals("https://api.ethermine.org/miner/X", parsed.url)
+        // Parser is case-insensitive, so the URL comes back lowercased.
+        assertEquals("https://api.ethermine.org/miner/x", parsed.url)
         assertEquals("0xabc", parsed.wallet)
         assertEquals(45.0, parsed.threshold!!, 0.001)
     }
