@@ -167,12 +167,20 @@ object IntentAnalyzer {
     )
 
     /** Close intents by shared word tokens so UNKNOWN replies with "did you mean ...". */
+    private val suggestionStopWords = setOf(
+        "me", "my", "the", "a", "an", "i", "you", "your", "to", "of", "for", "and",
+        "is", "are", "do", "does", "how", "what", "when", "all", "on", "off", "it",
+        "this", "that", "in", "be", "can", "should", "about", "please", "now"
+    )
+
     private fun nearestIntents(parsed: CommandParser.ParsedCommand): String? {
+        val meaningful = parsed.words.filter { it !in suggestionStopWords }
+        if (meaningful.isEmpty()) return null
         val scored = keywordScores.map { (intent, keywords) ->
             intent to keywords.sumOf { kw ->
                 if (kw.contains(" ")) {
-                    kw.split(" ").count { parsed.words.contains(it) }
-                } else if (parsed.words.contains(kw)) 1 else 0
+                    kw.split(" ").count { meaningful.contains(it) }
+                } else if (meaningful.contains(kw)) 1 else 0
             }
         }.filter { it.second > 0 }.sortedByDescending { it.second }
         val top = scored.take(2).map { it.first.name.lowercase().replace('_', ' ') }

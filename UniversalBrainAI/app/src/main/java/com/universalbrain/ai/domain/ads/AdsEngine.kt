@@ -36,7 +36,7 @@ object AdsEngine {
     fun streakAfter(lastWatchDayEpoch: Long, todayDayEpoch: Long, currentStreak: Int): Int = when {
         lastWatchDayEpoch <= 0L -> 1
         todayDayEpoch == lastWatchDayEpoch -> currentStreak.coerceAtLeast(1)
-        todayDayEpoch - lastWatchDayEpoch == 86_400_000L -> currentStreak + 1
+        todayDayEpoch - lastWatchDayEpoch == 1L -> currentStreak + 1
         else -> 1
     }
 

@@ -32,11 +32,14 @@ object CommandParser {
         val normalized = raw.lowercase()
             .trim()
             .replace(Regex("[^a-z0-9\\s%.:/_-]"), " ")
-            // Sentence periods are word separators; decimal points stay attached.
-            .replace(Regex("(?<![0-9])\\.(?![0-9])"), " ")
             .replace(Regex("\\s+"), " ")
             .trim()
-        val words = normalized.split(" ").filter { it.isNotBlank() }
+        // Sentence periods end words; URL/domain/decimal dots survive because
+        // they are followed by more characters, not whitespace or end.
+        val words = normalized
+            .replace(Regex("\\.(?=\\s|$)"), " ")
+            .split(" ")
+            .filter { it.isNotBlank() }
 
         val digit = words.firstOrNull { it.toIntOrNull() != null }?.toIntOrNull()
         val wordNum = words.firstNotNullOfOrNull { numberWords[it] }
