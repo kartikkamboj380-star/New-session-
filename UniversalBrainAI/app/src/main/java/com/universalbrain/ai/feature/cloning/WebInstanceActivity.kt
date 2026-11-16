@@ -22,7 +22,6 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
-import androidx.webkit.ProfileStore
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 
@@ -127,19 +126,22 @@ abstract class WebInstanceActivity : Activity() {
 
     /** Multi-profile WebView when supported; per-process suffix as fallback. */
     private fun createWebView(): WebView {
-        val profileWebView = runCatching {
-            if (!WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) return@runCatching null
-            val profile = ProfileStore.getInstance().getOrCreateProfile(safeProfileName())
-            profileCookieManager = profile.cookieManager
-            WebViewCompat.createWebView(this, profile)
-        }.getOrNull()
-        if (profileWebView != null) return profileWebView
-
-        // Legacy path: one WebView data directory per slot process.
-        if (Build.VERSION.SDK_INT >= 28) {
+        val multiProfile = runCatching {
+            WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)
+        }.getOrDefault(false)
+        if (!multiProfile && Build.VERSION.SDK_INT >= 28) {
+            // Legacy path: one WebView data directory per slot process. Must be
+            // set before the first WebView exists in this process.
             runCatching { WebView.setDataDirectorySuffix(safeProfileName()) }
         }
-        return WebView(this)
+        val view = WebView(this)
+        if (multiProfile) {
+            runCatching {
+                WebViewCompat.setProfile(view, safeProfileName())
+                profileCookieManager = WebViewCompat.getProfile(view).cookieManager
+            }
+        }
+        return view
     }
 
     private fun clearSessionStorage() {
