@@ -239,3 +239,22 @@ interface OpsDao {
     @Query("DELETE FROM activity_logs")
     suspend fun clearLogs()
 }
+
+/** Reward ledger for the ads module (real SDK callbacks only). */
+@Dao
+interface AdRewardDao {
+    @Insert
+    suspend fun insert(reward: AdReward)
+
+    @Query("SELECT * FROM ad_rewards ORDER BY at DESC LIMIT :limit")
+    fun observeRecent(limit: Int): Flow<List<AdReward>>
+
+    @Query("SELECT COALESCE(SUM(points), 0) FROM ad_rewards")
+    fun observeTotalPoints(): Flow<Int>
+
+    @Query("SELECT COALESCE(SUM(points), 0) FROM ad_rewards")
+    suspend fun totalPoints(): Int
+
+    @Query("SELECT COUNT(*) FROM ad_rewards WHERE at >= :since")
+    suspend fun countSince(since: Long): Int
+}

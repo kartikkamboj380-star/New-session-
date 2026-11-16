@@ -90,6 +90,39 @@ class UbaViewModel(
     val miningPaused = container.miningRepository.paused
     val network = container.networkMonitor.state
 
+    // ---- performance profile / recommendations / ads ----
+    val batterySaver = MutableStateFlow(false)
+    val recommendations = MutableStateFlow<List<com.universalbrain.ai.domain.ai.RecommendationEngine.Recommendation>>(emptyList())
+    val adRewards = container.db.adRewardDao().observeRecent(50)
+    val adBalance = container.db.adRewardDao().observeTotalPoints()
+    val adsToday = MutableStateFlow(0)
+    val adsStreak = MutableStateFlow(0)
+    val perfProfile = MutableStateFlow(
+        com.universalbrain.ai.domain.perf.PerformanceProfile.forDevice(
+            container.deviceMonitor.totalRamMb(), container.isLowRamDevice, false
+        )
+    )
+
+    private suspend fun profileIntervalMs(): Long {
+        val saver = container.memoryManager.recall(AIBrain.MemoryKeys.BATTERY_SAVER) == "true"
+        batterySaver.value = saver
+        val profile = com.universalbrain.ai.domain.perf.PerformanceProfile.forDevice(
+            container.deviceMonitor.totalRamMb(), container.deviceMonitor.isLowRamDevice(), saver
+        )
+        perfProfile.value = profile
+        return profile.vitalsSampleMs
+    }
+
+    private suspend fun refreshRecommendations() {
+        runCatching {
+            recommendations.value = com.universalbrain.ai.domain.ai.RecommendationEngine.recommendations(
+                brain.recommendationSnapshot()
+            )
+            adsToday.value = container.db.adRewardDao().countSince(startingOfToday())
+            adsStreak.value = container.memoryManager.recall(AIBrain.MemoryKeys.ADS_STREAK_DAYS)?.toIntOrNull() ?: 0
+        }
+    }
+
     // ---- scanning / import ----
     data class ScannerState(
         val apps: List<CloneRepository.InstalledAppInfo> = emptyList(),
@@ -117,9 +150,11 @@ class UbaViewModel(
 
     init {
         viewModelScope.launch {
+            var tick = 0
             while (true) {
                 vitals.value = container.deviceMonitor.sample()
-                delayCompat(5000)
+                if (tick++ % 3 == 0) refreshRecommendations()
+                delayCompat(profileIntervalMs())
             }
         }
         viewModelScope.launch { seedBuiltInRules() }
@@ -242,20 +277,28 @@ class UbaViewModel(
 
     // ---- instances ----
 
-    fun createInstance(appPackage: String, appLabel: String, kind: String, name: String?, onResult: (String?) -> Unit) {
+    fun createInstance(
+        appPackage: String, appLabel: String, kind: String, name: String?,
+        startUrl: String = "", freshStart: Boolean = false,
+        onResult: (String?) -> Unit
+    ) {
         viewModelScope.launch {
             val current = container.db.cloneDao().count()
             if (!com.universalbrain.ai.domain.cloning.ClonePolicy.canCreate(current, clonePolicy)) {
                 onResult("Instance cap reached (${clonePolicy.maxInstances}) for this device: ${clonePolicy.reason}")
                 return@launch
             }
-            val instance = container.cloneRepository.create(appPackage, appLabel, kind, name)
+            val instance = container.cloneRepository.create(appPackage, appLabel, kind, name, startUrl, freshStart)
             onResult(null)
             log("CLONES", "CREATED", instance.name)
         }
     }
 
-    fun bulkCreate(appPackage: String, appLabel: String, kind: String, count: Int, onResult: (String) -> Unit) {
+    fun bulkCreate(
+        appPackage: String, appLabel: String, kind: String, count: Int,
+        startUrl: String = "", freshStart: Boolean = false,
+        onResult: (String) -> Unit
+    ) {
         viewModelScope.launch {
             var created = 0
             var blocked: String? = null
@@ -265,10 +308,26 @@ class UbaViewModel(
                     blocked = "Cap reached (${clonePolicy.maxInstances}): ${clonePolicy.reason}"
                     return@repeat
                 }
-                container.cloneRepository.create(appPackage, appLabel, kind, null)
+                container.cloneRepository.create(appPackage, appLabel, kind, null, startUrl, freshStart)
                 created++
             }
             onResult(if (blocked != null) "Created $created. $blocked" else "Created $created instance(s).")
+        }
+    }
+
+    fun setInstanceUrl(id: String, url: String, freshStart: Boolean, onResult: (String) -> Unit = {}) {
+        viewModelScope.launch {
+            container.cloneRepository.setInstanceConfig(id, url, freshStart)
+            log("CLONES", "CONFIG", "$id url=$url fresh=$freshStart")
+            onResult("Saved. ${if (freshStart) "Next launch opens the sign-in page (fresh session)." else "Session will be kept between launches."}")
+        }
+    }
+
+    fun resetInstanceData(id: String, onResult: (String) -> Unit = {}) {
+        viewModelScope.launch {
+            container.cloneRepository.resetInstanceData(id)
+            log("CLONES", "RESET_DATA", id)
+            onResult("Instance data wiped. Launch it fresh to sign in again.")
         }
     }
 
@@ -367,7 +426,9 @@ class UbaViewModel(
                 val history = chat.first().map { it.role.lowercase() to it.text }.takeLast(10)
                 val reply = container.llmClient.complete(
                     LlmClient.Config(llmBaseUrl.value, container.secureStore.get("llm_api_key") ?: "", llmModel.value.ifBlank { "gpt-4o-mini" }),
-                    "You are MASTER BRAIN, the assistant inside the Universal Brain AI Android app. Answer briefly.",
+                    "You are MASTER BRAIN, the agent inside the Universal Brain AI Android app. " +
+                        "Live app state (real, from this device): ${brain.contextSummary()}. " +
+                        "Answer briefly and concretely. When the user asks for an action, tell them the exact chat command the local tool brain accepts (e.g. \"pause mining\", \"open ctpool\", \"ads status\").",
                     history
                 )
                 aiTyping.value = false
@@ -537,7 +598,59 @@ class UbaViewModel(
     }
 
     fun setAdsConsent(consent: Boolean) {
-        viewModelScope.launch { settings.edit { it[KEY_ADS_CONSENT] = consent } }
+        viewModelScope.launch {
+            settings.edit { it[KEY_ADS_CONSENT] = consent }
+            container.memoryManager.remember(AIBrain.MemoryKeys.ADS_CONSENT, consent.toString())
+            refreshRecommendations()
+        }
+    }
+
+    /**
+     * Integration point for a real rewarded-ad SDK callback. Only a genuine
+     * SDK "onUserEarnedReward" event may call this — the ledger never records
+     * simulated views.
+     */
+    fun recordAdReward(points: Int, provider: String, kind: String) {
+        viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            val lastDay = container.memoryManager.recall(AIBrain.MemoryKeys.ADS_LAST_WATCH_DAY)?.toLongOrNull() ?: 0L
+            val streak = container.memoryManager.recall(AIBrain.MemoryKeys.ADS_STREAK_DAYS)?.toIntOrNull() ?: 0
+            val today = com.universalbrain.ai.domain.ads.AdsEngine.dayEpoch(now)
+            val newStreak = com.universalbrain.ai.domain.ads.AdsEngine.streakAfter(lastDay, today, streak)
+            container.memoryManager.remember(AIBrain.MemoryKeys.ADS_LAST_WATCH_DAY, today.toString())
+            container.memoryManager.remember(AIBrain.MemoryKeys.ADS_STREAK_DAYS, newStreak.toString())
+            container.db.adRewardDao().insert(
+                com.universalbrain.ai.core.database.AdReward(
+                    id = UUID.randomUUID().toString(), at = now,
+                    points = points, provider = provider, kind = kind
+                )
+            )
+            refreshRecommendations()
+        }
+    }
+
+    fun setBatterySaver(on: Boolean, onResult: (String) -> Unit = {}) {
+        viewModelScope.launch {
+            container.memoryManager.remember(AIBrain.MemoryKeys.BATTERY_SAVER, on.toString())
+            batterySaver.value = on
+            val profile = com.universalbrain.ai.domain.perf.PerformanceProfile.forDevice(
+                container.deviceMonitor.totalRamMb(), container.deviceMonitor.isLowRamDevice(), on
+            )
+            perfProfile.value = profile
+            MiningPollWorker.schedule(container.appContext, profile.defaultPollMinutes)
+            refreshRecommendations()
+            onResult("Battery saver ${if (on) "ON" else "OFF"} — ${profile.reason}")
+        }
+    }
+
+    private fun startingOfToday(): Long {
+        val calendar = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.HOUR_OF_DAY, 0)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }
+        return calendar.timeInMillis
     }
 
     private suspend fun loadLlmConfig(): Triple<String, String, String?> {
@@ -561,6 +674,11 @@ class UbaViewModel(
             llmBaseUrl.value = baseUrl.trim()
             llmModel.value = model.trim()
             llmKeySet.value = container.secureStore.get("llm_api_key") != null
+            container.memoryManager.remember(
+                AIBrain.MemoryKeys.LLM_CONFIGURED,
+                (llmBaseUrl.value.isNotBlank() && llmKeySet.value).toString()
+            )
+            refreshRecommendations()
             onResult("LLM bridge saved${if (baseUrl.isBlank()) " (disabled — local brain active)" else ""}.")
         }
     }

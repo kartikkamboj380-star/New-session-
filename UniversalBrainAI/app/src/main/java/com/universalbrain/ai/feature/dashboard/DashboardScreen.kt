@@ -42,6 +42,7 @@ fun DashboardScreen(vm: UbaViewModel, navController: NavHostController) {
     val network by vm.network.collectAsState()
     val tasks by vm.tasks.collectAsState(initial = emptyList())
     val memoryCount by vm.memoryCount.collectAsState(initial = 0)
+    val recommendations by vm.recommendations.collectAsState()
 
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         item {
@@ -116,6 +117,43 @@ fun DashboardScreen(vm: UbaViewModel, navController: NavHostController) {
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+        }
+        item {
+            SectionHeader("AI suggestions (live)")
+        }
+        if (recommendations.isEmpty()) {
+            item {
+                Text(
+                    "Scanning all modules…",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
+            }
+        } else {
+            items(recommendations, key = { it.title }) { rec ->
+                SimpleCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .clickable { vm.sendChat(rec.command) }
+                ) {
+                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        StatusDot(
+                            when (rec.priority) {
+                                1 -> com.universalbrain.ai.feature.shell.ErrorRed
+                                2 -> com.universalbrain.ai.feature.shell.WarnAmber
+                                else -> AccentBlue
+                            }
+                        )
+                        Column(Modifier.padding(start = 10.dp)) {
+                            Text(rec.title, fontWeight = FontWeight.SemiBold)
+                            Text(rec.detail, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("tap to run: \"${rec.command}\"", style = MaterialTheme.typography.labelSmall, color = AccentBlue)
+                        }
+                    }
+                }
             }
         }
         item {

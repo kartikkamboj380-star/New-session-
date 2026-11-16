@@ -114,6 +114,26 @@ fun GeneralSettingsScreen(vm: UbaViewModel, navController: NavHostController) {
                 vm.saveLlmConfig(baseUrl, model, apiKey.ifBlank { null }) { result -> message = result }
             }) { Text("Save LLM bridge") }
         }
+        SectionHeader("Performance (low-end friendly)")
+        val profile by vm.perfProfile.collectAsState()
+        val saver by vm.batterySaver.collectAsState()
+        SimpleCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+            Text("Detected profile: ${profile.tier}", fontWeight = FontWeight.SemiBold)
+            Text(
+                profile.reason,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                "Vitals sampling: every ${profile.vitalsSampleMs / 1000}s · mining poll: ${profile.defaultPollMinutes}min · max workers: ${profile.maxRecommendedWorkers} · animations: ${if (profile.animationsEnabled) "on" else "off"}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                Switch(checked = saver, onCheckedChange = { vm.setBatterySaver(it) { msg -> message = msg } })
+                Text("  Battery saver (halves sampling & polling)", style = MaterialTheme.typography.bodySmall)
+            }
+        }
         SectionHeader("About")
         SimpleCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
             Text("Universal Brain AI v1.0.0", fontWeight = FontWeight.SemiBold)

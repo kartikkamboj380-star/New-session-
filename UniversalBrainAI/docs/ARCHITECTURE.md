@@ -66,3 +66,34 @@ Secrets are never stored in Room: `SecureStore` (Android Keystore, AES/GCM).
   stats APIs; no on-device mining (unprofitable and hardware-damaging).
 - Ads: consent + reward ledger; no ad SDK is bundled without real IDs.
 - AI: deterministic local NLU (not an LLM) + optional user-configured bridge.
+
+## v1.1 upgrade (device-feedback round, 2026-11)
+
+Real-device feedback drove three upgrades, all honest and unit-tested:
+
+1. **Session isolation (the ctpool problem).** WEB instances now use multi-profile
+   WebView (`androidx.webkit` ProfileStore, WebView 116+): a named Profile per
+   instance with its own cookie store/data directory, falling back to
+   per-process data-dir suffixes. Each instance carries `startUrl` +
+   `freshStart` (DB v1 -> v2 migration, non-destructive): fresh-start clears
+   cookies/storage before loading the start URL, so every launch opens the
+   site's sign-in page. APP instances now relaunch the app UI from its start
+   screen (`FLAG_ACTIVITY_CLEAR_TASK`); the UI states plainly that Android
+   keeps the app's own stored login — per-account sessions need WEB clones
+   (paste the app's website URL) or MIUI Dual apps.
+2. **Stronger brain.** IntentAnalyzer grew from 15 to 33 intents with synonym
+   scoring, verb-target extraction ("open ctpool"), number-words, URL/wallet/
+   threshold/quoted-name parsing and nearest-intent suggestions for unknowns.
+   The tool registry grew from 12 to 28 tools: real create/delete/configure of
+   instances, app launching, app import, accounts, worker registration,
+   pause/resume, apply-optimization (writes poll settings), automation rules,
+   battery saver, recommendations. A `RecommendationEngine` scans live state
+   and surfaces prioritized, tappable actions on the Dashboard; the optional
+   LLM bridge now receives a live state summary.
+3. **Low-end phones + ads.** `PerformanceProfile` (LOW/MID/HIGH + battery
+   saver) drives vitals sampling rate, mining poll cadence, page sizes and
+   animation flags; low-RAM devices cap at 2 instances and 2 workers. The ads
+   module adds points/cap/streak math (`AdsEngine`) and a real ledger table
+   (`ad_rewards`) written ONLY by a genuine SDK reward callback
+   (`UbaViewModel.recordAdReward`) — with no SDK bundled, every surface says
+   ads cannot be served yet. Nothing is simulated.

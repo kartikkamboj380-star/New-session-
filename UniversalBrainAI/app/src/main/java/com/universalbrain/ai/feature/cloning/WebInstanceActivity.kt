@@ -7,10 +7,12 @@ import android.os.Bundle
 import android.os.Process
 import android.view.Gravity
 import android.view.ViewGroup
+import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
+import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
@@ -20,11 +22,18 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.webkit.ProfileStore
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 
 /**
- * Host for one isolated WEB clone instance, in its own OS process. Each slot
- * process sets a unique WebView data-directory suffix, so concurrent WEB
- * instances have genuinely separate storage.
+ * Host for one isolated WEB clone instance, in its own OS process. Isolation
+ * layers (best available wins):
+ *  1. Multi-profile WebView (WebView 116+): a named Profile per instance with
+ *     its own cookie store and data directory — real per-instance sessions.
+ *  2. Per-process WebView data-directory suffix (API 28+).
+ * Fresh-start mode clears cookies/storage before loading the start URL so the
+ * site's sign-in page shows on every launch.
  */
 abstract class WebInstanceActivity : Activity() {
 
@@ -32,18 +41,21 @@ abstract class WebInstanceActivity : Activity() {
     private lateinit var webView: WebView
     private lateinit var urlInput: EditText
     private lateinit var progressBar: ProgressBar
+    private var profileCookieManager: CookieManager? = null
+
+    private fun safeProfileName(): String =
+        "uba_" + instanceId.replace("[^A-Za-z0-9_-]".toRegex(), "_").take(40)
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         instanceId = intent.getStringExtra(CloneRepository.EXTRA_INSTANCE_ID) ?: ""
         val name = intent.getStringExtra(CloneRepository.EXTRA_INSTANCE_NAME) ?: "Instance"
+        val startUrl = intent.getStringExtra(CloneRepository.EXTRA_START_URL)
+        val freshStart = intent.getBooleanExtra(CloneRepository.EXTRA_FRESH_START, false)
         if (instanceId.isBlank()) {
             finish()
             return
-        }
-        if (Build.VERSION.SDK_INT >= 28) {
-            WebView.setDataDirectorySuffix("uba_" + instanceId.replace("[^A-Za-z0-9_-]".toRegex(), "_").take(40))
         }
 
         val dp = resources.displayMetrics.density
@@ -59,7 +71,7 @@ abstract class WebInstanceActivity : Activity() {
             setPadding(px(10), px(8), px(10), px(8))
         }
         val title = TextView(this).apply {
-            text = name
+            text = name + if (freshStart) " · fresh session" else ""
             textSize = 15f
             setTextColor(0xFFEDF1F5.toInt())
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
@@ -96,9 +108,8 @@ abstract class WebInstanceActivity : Activity() {
             visibility = ViewGroup.GONE
         }
 
-        webView = WebView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
-        }
+        webView = createWebView()
+        webView.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
 
         root.addView(top)
         root.addView(urlBar)
@@ -106,11 +117,42 @@ abstract class WebInstanceActivity : Activity() {
         root.addView(webView)
         setContentView(root)
 
+        if (freshStart) clearSessionStorage()
         configureWebView()
-        val startUrl = intent.getStringExtra(EXTRA_START_URL)
         if (!startUrl.isNullOrBlank()) {
             urlInput.setText(startUrl)
             webView.loadUrl(startUrl)
+        }
+    }
+
+    /** Multi-profile WebView when supported; per-process suffix as fallback. */
+    private fun createWebView(): WebView {
+        val profileWebView = runCatching {
+            if (!WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) return@runCatching null
+            val profile = ProfileStore.getInstance().getOrCreateProfile(safeProfileName())
+            profileCookieManager = profile.cookieManager
+            WebViewCompat.createWebView(this, profile)
+        }.getOrNull()
+        if (profileWebView != null) return profileWebView
+
+        // Legacy path: one WebView data directory per slot process.
+        if (Build.VERSION.SDK_INT >= 28) {
+            runCatching { WebView.setDataDirectorySuffix(safeProfileName()) }
+        }
+        return WebView(this)
+    }
+
+    private fun clearSessionStorage() {
+        runCatching {
+            (profileCookieManager ?: CookieManager.getInstance()).run {
+                removeAllCookies(null)
+                removeSessionCookies(null)
+                flush()
+            }
+            WebStorage.getInstance().deleteAllData()
+            webView.clearCache(true)
+            webView.clearFormData()
+            webView.clearHistory()
         }
     }
 
@@ -172,10 +214,6 @@ abstract class WebInstanceActivity : Activity() {
         // Reset the slot process so the next instance using it starts fresh.
         android.os.Handler(mainLooper).postDelayed({ Process.killProcess(Process.myPid()) }, 250)
         super.onDestroy()
-    }
-
-    companion object {
-        const val EXTRA_START_URL = "extra.start_url"
     }
 }
 

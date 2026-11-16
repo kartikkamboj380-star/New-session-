@@ -1,5 +1,6 @@
 package com.universalbrain.ai.core.database
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
@@ -29,7 +30,11 @@ data class CloneInstance(
     val dataDirPath: String?,
     val accountId: String?,
     val createdAt: Long,
-    val lastActiveAt: Long
+    val lastActiveAt: Long,
+    /** WEB instances: first URL loaded on launch (e.g. the site's sign-in page). */
+    @ColumnInfo(defaultValue = "") val startUrl: String = "",
+    /** WEB instances: when true every launch clears cookies/storage so the sign-in page shows fresh. */
+    @ColumnInfo(defaultValue = "0") val freshStart: Boolean = false
 )
 
 /** Managed account (credentials live in the Keystore-backed secure store). */
@@ -149,4 +154,17 @@ data class ActivityLog(
     val module: String,
     val action: String,
     val detail: String?
+)
+
+/**
+ * One rewarded-ad completion from a configured ad SDK. Rows are ONLY written
+ * by the SDK reward callback (UbaViewModel.recordAdReward) — never simulated.
+ */
+@Entity(tableName = "ad_rewards")
+data class AdReward(
+    @PrimaryKey val id: String,
+    val at: Long,
+    val points: Int,
+    val provider: String,
+    val kind: String
 )

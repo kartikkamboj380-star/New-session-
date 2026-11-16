@@ -256,10 +256,14 @@ fun ChatScreen(vm: UbaViewModel, navController: NavHostController) {
 @Composable
 private fun QuickCommandsRow(onCommand: (String) -> Unit) {
     val quick = listOf(
+        "Recommend improvements",
         "Show all my accounts",
         "Check mining performance",
         "Show today's earnings",
         "Optimize the mining configuration",
+        "Device status",
+        "Battery saver on",
+        "Ads status",
         "Generate a complete performance report"
     )
     Row(

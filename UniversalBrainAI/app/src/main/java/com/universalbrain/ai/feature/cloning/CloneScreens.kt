@@ -109,9 +109,9 @@ fun CloneManagerScreen(vm: UbaViewModel, navController: NavHostController) {
         CreateInstanceDialog(
             apps = apps,
             onDismiss = { showCreate = false },
-            onCreate = { pkg, label, kind, count ->
+            onCreate = { pkg, label, kind, count, url, fresh ->
                 showCreate = false
-                vm.bulkCreate(pkg, label, kind, count) { result -> message = result }
+                vm.bulkCreate(pkg, label, kind, count, url, fresh) { result -> message = result }
             }
         )
     }
@@ -129,11 +129,13 @@ fun CloneManagerScreen(vm: UbaViewModel, navController: NavHostController) {
 private fun CreateInstanceDialog(
     apps: List<com.universalbrain.ai.core.database.ImportedApp>,
     onDismiss: () -> Unit,
-    onCreate: (String, String, String, Int) -> Unit
+    onCreate: (String, String, String, Int, String, Boolean) -> Unit
 ) {
     var selectedPackage by remember { mutableStateOf(apps.firstOrNull()?.packageName ?: "") }
     var kind by remember { mutableStateOf("APP") }
     var count by remember { mutableStateOf("1") }
+    var startUrl by remember { mutableStateOf("") }
+    var freshStart by remember { mutableStateOf(true) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -156,7 +158,37 @@ private fun CreateInstanceDialog(
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     RadioButton(selected = kind == "WEB", onClick = { kind = "WEB" })
-                    Text("WEB (isolated process + storage)", style = MaterialTheme.typography.bodySmall)
+                    Text("WEB (isolated session + sign-in page)", style = MaterialTheme.typography.bodySmall)
+                }
+                if (kind == "WEB") {
+                    OutlinedTextField(
+                        value = startUrl,
+                        onValueChange = { startUrl = it },
+                        label = { Text("Website URL (e.g. https://ctpool.com)") },
+                        singleLine = true,
+                        modifier = Modifier.padding(top = 6.dp)
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.material3.Switch(
+                            checked = freshStart,
+                            onCheckedChange = { freshStart = it }
+                        )
+                        Text(
+                            "  Fresh session each launch (always opens sign-in page)",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    Text(
+                        "Each WEB instance gets its own cookie store and data directory — separate accounts per instance.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    Text(
+                        "APP instances launch the real installed app, so the app's own stored session is used (one session per device). For independent sign-ins per clone, use WEB and paste the app's website URL.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
                 OutlinedTextField(
                     value = count,
@@ -169,7 +201,14 @@ private fun CreateInstanceDialog(
         },
         confirmButton = {
             TextButton(onClick = {
-                onCreate(selectedPackage, apps.firstOrNull { it.packageName == selectedPackage }?.label ?: "App", kind, count.toIntOrNull() ?: 1)
+                onCreate(
+                    selectedPackage,
+                    apps.firstOrNull { it.packageName == selectedPackage }?.label ?: "App",
+                    kind,
+                    count.toIntOrNull() ?: 1,
+                    startUrl.trim(),
+                    if (kind == "WEB") freshStart else false
+                )
             }) { Text("Create") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
@@ -177,10 +216,37 @@ private fun CreateInstanceDialog(
 }
 
 @Composable
+private fun WebSessionConfig(vm: UbaViewModel, current: CloneInstance, onMessage: (String) -> Unit) {
+    var url by remember(current.id) { mutableStateOf(current.startUrl) }
+    var fresh by remember(current.id) { mutableStateOf(current.freshStart) }
+    SectionHeader("WEB session (sign-in)")
+    SimpleCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+        OutlinedTextField(
+            value = url,
+            onValueChange = { url = it },
+            label = { Text("Start URL (e.g. https://ctpool.com)") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+            androidx.compose.material3.Switch(checked = fresh, onCheckedChange = { fresh = it })
+            Text(
+                "  Fresh session on every launch (sign-in page)",
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+        Button(onClick = { vm.setInstanceUrl(current.id, url, fresh) { msg -> onMessage(msg) } }) {
+            Text("Save session settings")
+        }
+    }
+}
+
+@Composable
 fun InstanceDetailsScreen(vm: UbaViewModel, navController: NavHostController, instanceId: String) {
     var instance by remember { mutableStateOf<CloneInstance?>(null) }
     var renameTo by remember { mutableStateOf("") }
     var showRename by remember { mutableStateOf(false) }
+    var configMessage by remember { mutableStateOf<String?>(null) }
     val accounts by vm.accounts.collectAsState(initial = emptyList())
 
     androidx.compose.runtime.LaunchedEffect(instanceId) {
@@ -214,6 +280,25 @@ fun InstanceDetailsScreen(vm: UbaViewModel, navController: NavHostController, in
                     vm.deleteInstance(current.id)
                     navController.popBackStack()
                 }) { Text("Delete", color = com.universalbrain.ai.feature.shell.ErrorRed) }
+            }
+            if (current.kind == "WEB") {
+                WebSessionConfig(vm, current) { msg -> configMessage = msg }
+                TextButton(onClick = {
+                    vm.resetInstanceData(current.id) { msg -> configMessage = msg }
+                }) { Text("Reset instance data (wipes session files)", color = com.universalbrain.ai.feature.shell.WarnAmber) }
+            } else {
+                SimpleCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                    Text("APP instance — session note", fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "This instance launches the real installed app, so the app uses its own stored session " +
+                            "(Android does not allow duplicating another app's private data). " +
+                            "Each launch restarts the app from its start screen, but the sign-in state is the app's own. " +
+                            "For one session PER clone, create a WEB instance with the app's website URL — those have " +
+                            "fully isolated cookie stores. On Xiaomi you can also use MIUI's built-in Dual apps (Settings → Apps → Dual apps).",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
             SectionHeader("Assign account")
             if (accounts.isEmpty()) {
@@ -251,6 +336,15 @@ fun InstanceDetailsScreen(vm: UbaViewModel, navController: NavHostController, in
                 }) { Text("Save") }
             },
             dismissButton = { TextButton(onClick = { showRename = false }) { Text("Cancel") } }
+        )
+    }
+
+    configMessage?.let {
+        AlertDialog(
+            onDismissRequest = { configMessage = null },
+            confirmButton = { TextButton(onClick = { configMessage = null }) { Text("OK") } },
+            title = { Text("Instance session") },
+            text = { Text(it) }
         )
     }
 }

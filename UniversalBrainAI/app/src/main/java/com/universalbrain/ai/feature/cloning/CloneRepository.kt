@@ -41,7 +41,9 @@ class CloneRepository(
         appPackage: String,
         appLabel: String,
         kind: String,
-        desiredName: String?
+        desiredName: String?,
+        startUrl: String = "",
+        freshStart: Boolean = false
     ): CloneInstance = withContext(Dispatchers.IO) {
         val existing = cloneDao.forApp(appPackage)
         val index = (existing.maxOfOrNull { it.index } ?: 0) + 1
@@ -58,10 +60,26 @@ class CloneRepository(
             dataDirPath = dataDir.absolutePath,
             accountId = null,
             createdAt = System.currentTimeMillis(),
-            lastActiveAt = System.currentTimeMillis()
+            lastActiveAt = System.currentTimeMillis(),
+            startUrl = startUrl,
+            freshStart = freshStart
         )
         cloneDao.insert(instance)
         instance
+    }
+
+    /** Updates the WEB instance launch URL and fresh-start (sign-in) behavior. */
+    suspend fun setInstanceConfig(id: String, startUrl: String, freshStart: Boolean) {
+        cloneDao.get(id)?.let { cloneDao.update(it.copy(startUrl = startUrl.trim(), freshStart = freshStart)) }
+    }
+
+    /** Wipes the instance's private data directory (session artifacts). */
+    suspend fun resetInstanceData(id: String) = withContext(Dispatchers.IO) {
+        cloneDao.get(id)?.let { entity ->
+            entity.dataDirPath?.let { File(it).deleteRecursively() }
+            File(entity.dataDirPath ?: "").mkdirs()
+        }
+        Unit
     }
 
     suspend fun rename(id: String, newName: String) {
@@ -102,6 +120,8 @@ class CloneRepository(
                 .putExtra(EXTRA_INSTANCE_ID, instance.id)
                 .putExtra(EXTRA_INSTANCE_NAME, instance.name)
                 .putExtra(EXTRA_SLOT, slot)
+                .putExtra(EXTRA_START_URL, instance.startUrl)
+                .putExtra(EXTRA_FRESH_START, instance.freshStart)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             runCatching { context.startActivity(intent) }
                 .onFailure { releaseSlot(instance.id); return "Could not open instance: ${it.message}" }
@@ -114,7 +134,11 @@ class CloneRepository(
                 return "${instance.appLabel} is not installed on this device."
             }
             cloneDao.setStatus(instance.id, "ACTIVE", System.currentTimeMillis())
-            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            // Restart the app UI from its launcher activity each launch, so the
+            // app always opens from its start screen. Android keeps the app's
+            // own stored login; per-account sessions require WEB clones or the
+            // device's native dual-app feature — stated honestly, not faked.
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
             runCatching { context.startActivity(launchIntent) }
                 .onFailure { return "Launch failed: ${it.message}" }
             null
@@ -162,5 +186,7 @@ class CloneRepository(
         const val EXTRA_INSTANCE_ID = "extra.instance_id"
         const val EXTRA_INSTANCE_NAME = "extra.instance_name"
         const val EXTRA_SLOT = "extra.slot"
+        const val EXTRA_START_URL = "extra.start_url"
+        const val EXTRA_FRESH_START = "extra.fresh_start"
     }
 }
